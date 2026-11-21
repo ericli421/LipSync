@@ -33,3 +33,15 @@ google-services.json
 
 # Android Profiling
 *.hprof
+
+# Python model-validation environments and generated assets
+.venv*/
+.tools/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+external/
+recordings/
+validation-output/
+*.pt
+*.pth

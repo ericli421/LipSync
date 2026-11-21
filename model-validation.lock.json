@@ -1,0 +1,8 @@
+{
+  "falcon_repository": "https://github.com/JusperLee/Falcon.git",
+  "falcon_commit": "5c5d4ff6ce99a63742101a3a7992592068df496c",
+  "model_repository": "JusperLee/Falcon",
+  "model_revision": "e50af93425c65dfabf15a7f6ea62991c5b632838",
+  "checkpoint_filename": "falcon.pt",
+  "checkpoint_sha256": "a1888b5a3484a38a68c42d1a0e73334b1f2e7924c6e6444b2cfdd27becce928c"
+}
