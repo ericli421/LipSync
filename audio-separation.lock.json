@@ -1,0 +1,20 @@
+{
+  "model": {
+    "repository": "speechbrain/sepformer-whamr",
+    "revision": "9950fd8055b38679d2af5bef2366b5dba600ec66",
+    "sample_rate": 8000,
+    "sources": 2,
+    "files": {
+      "hyperparams.yaml": "ff040161fc168d07e6a13a7a98592b90d39eab311bf55ace91372d9e2575b400",
+      "encoder.ckpt": "68e6706cd485dd62a7f29ce596e79fb604dfdd352849a546650baa41fe8c34b7",
+      "decoder.ckpt": "059532c89f67474e98c737e3790d607b60dcdd420767e9259165a2e7370bdd97",
+      "masknet.ckpt": "897fc2de3cde8992891a2ee7164cd49877459e65d4867327c3c6b80da94aad01"
+    }
+  },
+  "sample": {
+    "repository": "speechbrain/sepformer-wsj02mix",
+    "revision": "3a2826343a10e2d2e8a75f79aeab5ff3a2473531",
+    "filename": "test_mixture.wav",
+    "sha256": "73235884251e3f575adc540597bc704363ffe50bd4fc5164e96bf0d7afd3a371"
+  }
+}
