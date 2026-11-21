@@ -1,0 +1,92 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 195 45% 99%;
+    --foreground: 202 50% 9%;
+    --card: 0 0% 100%;
+    --card-foreground: 202 50% 9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 202 50% 9%;
+    --primary: 190 74.29% 58.82%;
+    --primary-foreground: 200 65% 10%;
+    /* Darker brand tone for text/icons on light surfaces (contrast). */
+    --primary-deep: 193 82% 34%;
+    --secondary: 192 45% 94%;
+    --secondary-foreground: 200 50% 14%;
+    --muted: 192 35% 95%;
+    --muted-foreground: 200 14% 42%;
+    --accent: 190 65% 93%;
+    --accent-foreground: 195 70% 18%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 193 30% 88%;
+    --input: 193 30% 86%;
+    --ring: 190 74.29% 58.82%;
+    --chart-1: 190 74% 59%;
+    --chart-2: 205 80% 55%;
+    --chart-3: 175 60% 45%;
+    --chart-4: 220 70% 60%;
+    --chart-5: 160 55% 50%;
+    --radius: 0.6rem;
+  }
+  .dark {
+    --background: 205 50% 5%;
+    --foreground: 190 30% 96%;
+    --card: 205 42% 8%;
+    --card-foreground: 190 30% 96%;
+    --popover: 205 42% 8%;
+    --popover-foreground: 190 30% 96%;
+    --primary: 190 74.29% 58.82%;
+    --primary-foreground: 205 55% 7%;
+    --primary-deep: 190 80% 66%;
+    --secondary: 203 32% 13%;
+    --secondary-foreground: 190 30% 96%;
+    --muted: 203 32% 13%;
+    --muted-foreground: 198 15% 64%;
+    --accent: 196 42% 15%;
+    --accent-foreground: 190 30% 96%;
+    --destructive: 0 62.8% 45%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 203 30% 16%;
+    --input: 203 30% 18%;
+    --ring: 190 74.29% 58.82%;
+    --chart-1: 190 74% 59%;
+    --chart-2: 205 80% 60%;
+    --chart-3: 175 60% 50%;
+    --chart-4: 220 70% 65%;
+    --chart-5: 160 55% 55%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html {
+    scroll-behavior: smooth;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+@layer utilities {
+  .bg-grid {
+    background-image:
+      linear-gradient(to right, hsl(var(--foreground) / 0.06) 1px, transparent 1px),
+      linear-gradient(to bottom, hsl(var(--foreground) / 0.06) 1px, transparent 1px);
+    background-size: 44px 44px;
+  }
+  .text-gradient {
+    @apply bg-clip-text text-transparent;
+    background-image: linear-gradient(
+      100deg,
+      hsl(var(--primary-deep)),
+      hsl(var(--primary)) 55%,
+      hsl(210 85% 62%)
+    );
+  }
+}

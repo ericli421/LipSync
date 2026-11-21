@@ -43,5 +43,17 @@ __pycache__/
 external/
 recordings/
 validation-output/
+video-samples/
 *.pt
 *.pth
+
+# Web dashboard
+node_modules/
+.next/
+out/
+coverage/
+.env
+.env*.local
+.vercel/
+*.tsbuildinfo
+next-env.d.ts
