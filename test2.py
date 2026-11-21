@@ -10,12 +10,14 @@ Run:
     python center_face_lips.py        (press q to quit)
 """
  
+import os
 import time
 import cv2
 import numpy as np
 import mediapipe as mp
  
-MODEL_PATH = "face_landmarker.task"
+# Resolve relative to this file so imports from other folders (e.g. processor/) work.
+MODEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "face_landmarker.task")
 CAMERA_INDEX = 0          # change if your device isn't the default camera
 MAX_FACES = 5
  
@@ -77,57 +79,87 @@ def pick_largest_face_in_region(faces, w, h):
     return best
  
  
-def main():
+def create_landmarker():
+    """Create a VIDEO-mode FaceLandmarker. Use one per video stream (timestamps must increase)."""
     options = FaceLandmarkerOptions(
         base_options=BaseOptions(model_asset_path=MODEL_PATH),
         running_mode=RunningMode.VIDEO,
         num_faces=MAX_FACES,
     )
+    return FaceLandmarker.create_from_options(options)
+
+
+def process_frame(landmarker, frame, timestamp_ms):
+    """Detect the target face's lips in a BGR frame and draw annotations onto it (in place).
+
+    Returns (frame, info) where info is a JSON-serialisable dict:
+        face_found: bool
+        openness:   inner-lip gap / mouth width (0 when no face)
+        mouth_box:  [x, y, w, h] in pixels, or None
+    """
+    h, w = frame.shape[:2]
+
+    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+    result = landmarker.detect_for_video(image, timestamp_ms)
+
+    info = {"face_found": False, "openness": 0.0, "mouth_box": None}
+
+    face = None
+    if result.face_landmarks:
+        face = pick_largest_face_in_region(result.face_landmarks, w, h)
+    if face is not None:
+        outer = to_pixels(face, OUTER_LIPS, w, h)
+        inner = to_pixels(face, INNER_LIPS, w, h)
+
+        # Lip bounding box (useful if you want to crop the mouth region)
+        x, y, bw, bh = cv2.boundingRect(outer)
+
+        # Simple mouth-openness measure: inner lip gap / mouth width
+        gap = np.linalg.norm(
+            np.subtract(to_pixels(face, [13], w, h)[0], to_pixels(face, [14], w, h)[0]))
+        width = np.linalg.norm(
+            np.subtract(to_pixels(face, [61], w, h)[0], to_pixels(face, [291], w, h)[0]))
+        openness = gap / width if width else 0.0
+
+        cv2.polylines(frame, [outer], True, (0, 0, 255), 2)
+        cv2.polylines(frame, [inner], True, (0, 255, 255), 1)
+        cv2.rectangle(frame, (x, y), (x + bw, y + bh), (0, 255, 0), 1)
+        cv2.putText(frame, f"mouth open: {openness:.2f}", (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+
+        info = {
+            "face_found": True,
+            "openness": float(openness),
+            "mouth_box": [int(x), int(y), int(bw), int(bh)],
+        }
+
+    rx1, ry1, rx2, ry2 = center_region(w, h)
+    cv2.rectangle(frame, (rx1, ry1), (rx2, ry2), (255, 255, 255), 1)
+    return frame, info
+
+
+def main():
     cap = cv2.VideoCapture(CAMERA_INDEX)
     if not cap.isOpened():
         raise RuntimeError(f"Could not open camera {CAMERA_INDEX}")
  
     start = time.monotonic()
-    with FaceLandmarker.create_from_options(options) as landmarker:
+    with create_landmarker() as landmarker:
         while True:
             ok, frame = cap.read()
             if not ok:
                 break
-            h, w = frame.shape[:2]
- 
-            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+            raw = frame.copy()
             timestamp_ms = int((time.monotonic() - start) * 1000)
-            result = landmarker.detect_for_video(image, timestamp_ms)
- 
-            face = None
-            if result.face_landmarks:
-                face = pick_largest_face_in_region(result.face_landmarks, w, h)
-            if face is not None:
-                outer = to_pixels(face, OUTER_LIPS, w, h)
-                inner = to_pixels(face, INNER_LIPS, w, h)
- 
-                # Lip bounding box (useful if you want to crop the mouth region)
-                x, y, bw, bh = cv2.boundingRect(outer)
-                mouth_crop = frame[y:y + bh, x:x + bw]
- 
-                # Simple mouth-openness measure: inner lip gap / mouth width
-                gap = np.linalg.norm(
-                    np.subtract(to_pixels(face, [13], w, h)[0], to_pixels(face, [14], w, h)[0]))
-                width = np.linalg.norm(
-                    np.subtract(to_pixels(face, [61], w, h)[0], to_pixels(face, [291], w, h)[0]))
-                openness = gap / width if width else 0.0
- 
-                cv2.polylines(frame, [outer], True, (0, 0, 255), 2)
-                cv2.polylines(frame, [inner], True, (0, 255, 255), 1)
-                cv2.rectangle(frame, (x, y), (x + bw, y + bh), (0, 255, 0), 1)
-                cv2.putText(frame, f"mouth open: {openness:.2f}", (10, 30),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+            frame, info = process_frame(landmarker, frame, timestamp_ms)
+
+            if info["mouth_box"]:
+                x, y, bw, bh = info["mouth_box"]
+                mouth_crop = raw[y:y + bh, x:x + bw]
                 if mouth_crop.size:
                     cv2.imshow("mouth", cv2.resize(mouth_crop, (160, 80)))
- 
-            rx1, ry1, rx2, ry2 = center_region(w, h)
-            cv2.rectangle(frame, (rx1, ry1), (rx2, ry2), (255, 255, 255), 1)
+
             cv2.imshow("camera", frame)
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 break
@@ -138,4 +170,3 @@ def main():
  
 if __name__ == "__main__":
     main()
- 
