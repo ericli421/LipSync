@@ -491,17 +491,26 @@ class StreamingSeparator:
             self.picks = np.concatenate([self.picks, np.full(len(up), choice, dtype=np.int8)])
         self.emitted8 = e1
         if self.recording is not None and sum(map(len, self.recording["voice1"])) < self.record_limit:
-            offset = getattr(self, "record_offset", 0)  # model-rate index where the mix track starts
+            # Voice tracks are written at a running model-rate position starting at the
+            # mix track's start. Emitted audio may trail the recording start by several
+            # regions (skip them) or follow a gap (pad with silence).
             region_start = e0 - gap
-            if not self.recording["voice1"]:
-                lead = np.zeros(max(0, region_start - offset))
-                self.recording["voice1"].append(lead)
-                self.recording["voice2"].append(lead)
-                self.recording["focus_pick"].append(np.full(len(lead), -1))
-            trim = max(0, offset - region_start) if len(self.recording["voice1"]) == 1 else 0
-            self.recording["voice1"].append(region[trim:, 0])
-            self.recording["voice2"].append(region[trim:, 1])
-            self.recording["focus_pick"].append(np.full(len(region) - trim, choice))
+            position = getattr(self, "record_pos", None)
+            if position is None:
+                position = getattr(self, "record_offset", 0)
+            if region_start > position:
+                pad = np.zeros(region_start - position)
+                for name in ("voice1", "voice2"):
+                    self.recording[name].append(pad)
+                self.recording["focus_pick"].append(np.full(len(pad), -1))
+                position = region_start
+            skip = position - region_start
+            if skip < len(region):
+                self.recording["voice1"].append(region[skip:, 0])
+                self.recording["voice2"].append(region[skip:, 1])
+                self.recording["focus_pick"].append(np.full(len(region) - skip, choice))
+                position = region_start + len(region)
+            self.record_pos = position
 
     def _align(self, est, start):
         """Reorder/sign-correct candidates to match the previous chunk on the overlap."""
@@ -571,6 +580,7 @@ class StreamingSeparator:
         with self.lock:
             self.record_limit = seconds * self.mr
             self.record_offset = self.total8
+            self.record_pos = None
             self.recording = {"mix": [], "voice1": [], "voice2": [], "focus_pick": []}
 
     def take_recording(self):

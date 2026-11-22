@@ -184,6 +184,30 @@ class StreamingTests(unittest.TestCase):
         self.assertEqual(status["model_rate"], 16000)
         self.assertGreater(abs(tone_db(tail, 300) - tone_db(tail, 700)), 25)
 
+    def test_recording_started_mid_stream_while_the_worker_lags(self):
+        """Pressing Record crashed separation in the 00:05 phone session."""
+        s1, s2, _ = sources(8)
+        mix = s1 + s2
+        separator = StreamingSeparator(RATE, fake_model(swap=False, rate=16000), window_s=2.0, hop_s=0.25,
+                                       model_rate=16000)
+        try:
+            for k, start in enumerate(range(0, len(mix), 960)):
+                if k == 200:
+                    separator.start_recording(60)
+                separator.feed(mix[start:start + 960])
+                if k % 3 == 0:  # the worker runs a little behind, as on the live server
+                    while separator.processed < separator.fed and not separator.error:
+                        time.sleep(0.001)
+            time.sleep(0.5)
+            self.assertIsNone(separator.error)
+            record = separator.take_recording()
+        finally:
+            separator.close()
+        n = min(len(record["mix"]), len(record["voice1"]))
+        rebuilt = record["voice1"][:n] + record["voice2"][:n]
+        tail = slice(n // 2, n)
+        self.assertLess(20 * np.log10(np.std(record["mix"][tail] - rebuilt[tail]) / np.std(record["mix"][tail])), -30)
+
     def test_rejects_unsupported_rate_and_geometry(self):
         with self.assertRaises(ValueError):
             StreamingSeparator(44100, fake_model())
