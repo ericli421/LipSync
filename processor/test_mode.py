@@ -5,6 +5,7 @@ from datetime import datetime
 import json
 from pathlib import Path
 import threading
+import time
 
 import numpy as np
 from scipy.io import wavfile
@@ -24,10 +25,12 @@ def _number(message, key, low, high):
 
 
 class TestMode:
-    def __init__(self, loader=None, on_change=None, recordings_dir=ROOT / "recordings"):
+    def __init__(self, loader=None, on_change=None, recordings_dir=ROOT / "recordings", log=None):
         if loader is None:
             from processor.separation_models import load as loader
         self.loader, self.on_change, self.recordings_dir = loader, on_change, Path(recordings_dir)
+        self.log = log or (lambda *args, **kwargs: None)
+        self.reported_skips = 0
         self.lock = threading.RLock()
         self.enabled, self.model = False, "auto"
         self.window_s, self.hop_s = 1.5, 0.25
@@ -102,11 +105,16 @@ class TestMode:
             while True:
                 with self.lock:
                     model = self.model
+                self.log("info", "test", f"loading model {model}")
+                began = time.perf_counter()
                 try:
                     separate, info = self.loader(model)
                     error = None
+                    where = info.get("gpu") or info.get("device")
+                    self.log("info", "test", f"loaded {info.get('model')} on {where} in {time.perf_counter() - began:.1f} s")
                 except Exception as exc:
                     separate, info, error = None, None, f"Model failed to load: {exc}"
+                    self.log("error", "test", error)
                 with self.lock:
                     if model != self.model:
                         continue  # changed while loading: load the new choice
@@ -164,6 +172,7 @@ class TestMode:
                 self.state, self.error = "error", str(exc)
                 self.enabled = False
                 self._close_separator()
+                self.log("error", "test", f"stopped: {exc}")
 
     def output(self, n):
         """Processed PCM16 bytes for the selected monitor, or None to relay the live chain."""
@@ -184,6 +193,10 @@ class TestMode:
             focus_db=self.focus_db, duck_db=self.duck_db,
             record_seconds=RECORD_SECONDS if self.record else 0)
         self.built_version, self.state, self.error = self.version, "running", None
+        self.reported_skips = 0
+        delay_ms = self.separator.delay * 1000 // session["rate"]
+        self.log("info", "test", f"separating: window {self.window_s} s, hop {self.hop_s} s, "
+                 f"delay {delay_ms} ms, input {session['rate']} Hz")
 
     def _close_separator(self):
         if self.separator is not None:
@@ -212,6 +225,19 @@ class TestMode:
                 "note": "voice1/voice2 are aligned to mix sample 0 (silence before first output)."}
         (folder / "meta.json").write_text(json.dumps(meta, indent=2))
         self.last_recording = str(folder)
+        self.log("info", "test", f"saved {meta['seconds']} s recording to {folder}")
+
+    def tick(self):
+        """Called every 100 ms while a phone streams: report a model that cannot keep up."""
+        with self.lock:
+            separator = self.separator
+        if separator is None:
+            return
+        live = separator.status()
+        if live["skipped_hops"] > self.reported_skips:
+            self.log("warn", "test", f"model too slow: {live['skipped_hops']} hops skipped "
+                     f"(p95 {live['infer_p95_ms']} ms > hop {live['hop_s'] * 1000:.0f} ms)", every_s=2)
+            self.reported_skips = live["skipped_hops"]
 
     def status(self):
         with self.lock:

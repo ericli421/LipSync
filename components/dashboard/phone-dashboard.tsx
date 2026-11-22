@@ -17,6 +17,13 @@ type Pipeline = {
   process_ms: number | null;
   error: string | null;
   test?: TestStatus;
+  log?: {
+    seq: number;
+    time: string;
+    level: string;
+    source: string;
+    message: string;
+  }[];
 };
 const BANDS = [
   { label: "Voice 80 Hz – 8 kHz", low_hz: 80, high_hz: 8000 },
@@ -380,6 +387,31 @@ export function PhoneDashboard() {
           control={control}
         />
       )}
+      <details className="border-t px-5 py-3 text-sm">
+        <summary className="cursor-pointer font-semibold">
+          Debug log (laptop server)
+        </summary>
+        <ol className="mt-2 max-h-72 overflow-y-auto font-mono text-xs">
+          {[...(pipeline?.log ?? [])].reverse().map((line) => (
+            <li
+              key={line.seq}
+              className={
+                line.level === "error"
+                  ? "text-destructive"
+                  : line.level === "warn"
+                    ? "text-amber-600"
+                    : undefined
+              }
+            >
+              {line.time} {line.level.toUpperCase()} [{line.source}]{" "}
+              {line.message}
+            </li>
+          ))}
+          {!pipeline?.log?.length && (
+            <li className="text-muted-foreground">No messages yet.</li>
+          )}
+        </ol>
+      </details>
       <p className="border-t px-5 py-3 text-sm text-muted-foreground">
         Use headphones to avoid feedback. Voice isolation and captions are not
         enabled yet; the voice band filter removes rumble and hiss only.

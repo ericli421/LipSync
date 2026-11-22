@@ -11,6 +11,9 @@ import androidx.camera.view.PreviewView
 import androidx.lifecycle.LifecycleOwner
 import okhttp3.*
 import org.json.JSONObject
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
@@ -22,6 +25,10 @@ data class CaptureState(
     val fps: Int = 0,
     val input: String = "Built-in microphone preferred",
     val monitoring: Boolean = false,
+    val connected: Boolean = false,
+    val test: TestStatus = TestStatus(),
+    val serverLog: List<LogLine> = emptyList(),
+    val phoneLog: List<String> = emptyList(),
 )
 
 class CaptureController(private val activity: Activity, private val owner: LifecycleOwner,
@@ -39,6 +46,13 @@ class CaptureController(private val activity: Activity, private val owner: Lifec
     @Volatile private var videoSentAt = 0L
     private var frames = 0
     private var lastLevel = 0L
+    private val clock = SimpleDateFormat("HH:mm:ss", Locale.US)
+
+    /** Phone-side debug line, kept across reconnects (newest last, at most 40). */
+    private fun note(message: String) {
+        state = state.copy(phoneLog = (state.phoneLog + "${clock.format(Date())} $message").takeLast(40))
+        update(state)
+    }
 
     fun start(address: String, front: Boolean, preview: PreviewView) {
         stop("Connecting…")
@@ -48,8 +62,8 @@ class CaptureController(private val activity: Activity, private val owner: Lifec
             val microphone = PhoneAudio(activity)
             audio = microphone
             val rate = microphone.prepare()
-            state = CaptureState(active = true, status = "Connecting to laptop…")
-            update(state)
+            state = CaptureState(active = true, status = "Connecting to laptop…", phoneLog = state.phoneLog, serverLog = state.serverLog)
+            note("Connecting to $endpoint at $rate Hz")
             activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             val listener = object : WebSocketListener() {
                 override fun onOpen(webSocket: WebSocket, response: Response) {
@@ -65,8 +79,9 @@ class CaptureController(private val activity: Activity, private val owner: Lifec
                                 "session" -> {
                                     check(session == null) { "Unexpected session change" }
                                     session = message.getString("session_id")
-                                    state = state.copy(status = "Connected · raw passthrough")
-                                    update(state)
+                                    val mode = message.optString("mode", "raw_passthrough").replace('_', ' ')
+                                    state = state.copy(status = "Connected · $mode", connected = true)
+                                    note("Session ${message.getString("session_id").take(8)} · $mode")
                                     microphone.start({ bytes, seq, first, time, timing, level, route ->
                                         val id = session
                                         if (generation == epoch && id != null) {
@@ -92,6 +107,12 @@ class CaptureController(private val activity: Activity, private val owner: Lifec
                                 }
                                 "audio" -> if (message.optString("session_id") == session) microphone.enqueue(Base64.decode(message.getString("pcm_base64"), Base64.NO_WRAP))
                                 "discontinuity" -> microphone.discontinuity()
+                                "pipeline" -> {
+                                    val (test, log) = PipelineStatus.parse(message)
+                                    state = state.copy(test = test, serverLog = if (message.has("log")) log else state.serverLog)
+                                    update(state)
+                                }
+                                "control_error" -> note("Laptop rejected request: ${message.optString("message")}")
                                 "video_ack" -> if (message.optString("session_id") == session) {
                                     videoPending.set(false)
                                     if (message.has("error")) { state = state.copy(status = "Video: ${message.getString("error")}"); update(state) }
@@ -127,6 +148,14 @@ class CaptureController(private val activity: Activity, private val owner: Lifec
     }
     private fun fail(message: String, epoch: Int) { main.post { if (generation == epoch) stop(message) } }
     fun monitor(enabled: Boolean) { audio?.monitor(enabled); state = state.copy(monitoring = enabled); update(state) }
+
+    /** Send a test/filter control to the laptop over the capture socket. */
+    fun control(message: JSONObject) {
+        val target = socket
+        if (session == null || target == null) { note("Not connected: start capture first"); return }
+        if (!target.send(message.toString())) note("Could not send ${message.optString("type")}")
+        else note("Sent ${message.optString("type")} ${message.toString().take(80)}")
+    }
     fun stop(message: String = "Stopped") {
         generation++; session = null
         socket?.cancel(); socket = null
@@ -134,7 +163,9 @@ class CaptureController(private val activity: Activity, private val owner: Lifec
         audio?.stop(); audio = null
         videoPending.set(false); videoSeq.set(0); frames = 0; videoSentAt = 0
         activity.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        state = CaptureState(status = message); update(state)
+        val logs = state.phoneLog
+        state = CaptureState(status = message, phoneLog = logs, serverLog = state.serverLog)
+        if (logs.lastOrNull()?.endsWith(message) != true) note(message) else update(state)
     }
     fun destroy() { stop(); client.dispatcher.executorService.shutdown(); client.connectionPool.evictAll() }
 }

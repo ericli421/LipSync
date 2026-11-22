@@ -1,6 +1,8 @@
 package com.example.lipsync
 
 import android.Manifest
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -18,6 +20,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -72,7 +75,7 @@ class MainActivity : ComponentActivity() {
                         AndroidView(factory = { preview }, modifier = Modifier.fillMaxWidth().aspectRatio(4f / 3f).background(Color.Black))
                         Card(Modifier.fillMaxWidth()) {
                             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                Text("Raw passthrough", style = MaterialTheme.typography.titleMedium)
+                                Text("Audio", style = MaterialTheme.typography.titleMedium)
                                 Text("Microphone level · processed video ${captureState.fps} FPS")
                                 LinearProgressIndicator(progress = { captureState.level.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
                                 Text(captureState.input, style = MaterialTheme.typography.bodySmall)
@@ -81,8 +84,12 @@ class MainActivity : ComponentActivity() {
                                     Switch(checked = captureState.monitoring, onCheckedChange = { controller.monitor(it) }, enabled = captureState.active,
                                         modifier = Modifier.semantics { contentDescription = "Headphone monitor" })
                                 }
-                                Text("Use headphones to avoid feedback. Voice isolation and captions are not enabled yet.", style = MaterialTheme.typography.bodySmall)
+                                Text("Use headphones to avoid feedback.", style = MaterialTheme.typography.bodySmall)
                             }
+                        }
+                        SeparationTestCard(captureState, controller)
+                        DebugLogCard(captureState) { text ->
+                            getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("LipSync debug log", text))
                         }
                     }
                 }
@@ -91,4 +98,81 @@ class MainActivity : ComponentActivity() {
     }
     override fun onStop() { super.onStop(); if (::controller.isInitialized) controller.stop("Stopped while app is in background") }
     override fun onDestroy() { if (::controller.isInitialized) controller.destroy(); super.onDestroy() }
+}
+
+private val SOURCES = listOf("original" to "Original", "voice1" to "Voice 1", "voice2" to "Voice 2", "focus" to "Focus")
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SeparationTestCard(state: CaptureState, controller: CaptureController) {
+    val test = state.test
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("SepFormer test (runs on laptop)", style = MaterialTheme.typography.titleMedium)
+            Text(when (test.state) {
+                "loading" -> "Loading model on the laptop… (first run downloads it)"
+                "ready" -> "Ready · ${test.where} · waiting for audio"
+                "running" -> "Running · ${test.where}"
+                "error" -> "Error: ${test.error ?: "unknown"}"
+                else -> "Off"
+            }, color = if (test.state == "error") MaterialTheme.colorScheme.error else Color.Unspecified)
+            Button(enabled = state.connected, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                onClick = { controller.control(CaptureProtocol.testMode(!test.enabled)) }) {
+                Text(if (test.enabled) "Stop SepFormer test" else "Start SepFormer test")
+            }
+            Text("Listen to", style = MaterialTheme.typography.labelLarge)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                SOURCES.forEach { (value, label) ->
+                    FilterChip(selected = test.monitor == value, enabled = state.connected,
+                        onClick = { controller.control(CaptureProtocol.monitorSource(value)) }, label = { Text(label) })
+                }
+            }
+            if (!state.monitoring) Text("Turn on Headphone monitor above to hear it.", style = MaterialTheme.typography.bodySmall)
+            if (test.state == "running") {
+                val budget = (test.hopS * 1000).toInt()
+                Text("Model ${test.inferMs?.let { "%.0f".format(it) } ?: "–"} ms (p95 ${test.p95Ms?.let { "%.0f".format(it) } ?: "–"}) / budget $budget ms")
+                Text(when (test.keepingUp) {
+                    true -> "Keeping up · delay ${test.delayMs ?: "–"} ms + Wi-Fi"
+                    false -> "NOT keeping up · ${test.skipped} of ${test.hops + test.skipped} hops skipped"
+                    null -> "Measuring…"
+                }, color = if (test.keepingUp == false) MaterialTheme.colorScheme.error else Color.Unspecified)
+                if (test.voiceDb.size == 2) Text("Voice 1 %.1f dB · Voice 2 %.1f dB · gap %.1f dB".format(
+                    test.voiceDb[0], test.voiceDb[1], kotlin.math.abs(test.voiceDb[0] - test.voiceDb[1])))
+                Text("On camera: ${if (test.pick >= 0) "Voice ${test.pick + 1}" else "none yet"} (${test.pickReason})")
+                test.liveError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DebugLogCard(state: CaptureState, copy: (String) -> Unit) {
+    val laptop = state.serverLog.asReversed()
+    val phone = state.phoneLog.asReversed()
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Debug log", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 12.dp))
+                OutlinedButton(onClick = {
+                    copy((listOf("Laptop:") + laptop.map { it.text() } + listOf("", "Phone:") + phone).joinToString("\n"))
+                }) { Text("Copy") }
+            }
+            Column(Modifier.fillMaxWidth().heightIn(max = 320.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("Laptop (newest first)", style = MaterialTheme.typography.labelLarge)
+                if (laptop.isEmpty()) Text("No laptop messages yet. Start capture to connect.", style = MaterialTheme.typography.bodySmall)
+                laptop.forEach { line ->
+                    Text(line.text(), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall,
+                        color = when (line.level) {
+                            "error" -> MaterialTheme.colorScheme.error
+                            "warn" -> MaterialTheme.colorScheme.tertiary
+                            else -> Color.Unspecified
+                        })
+                }
+                Spacer(Modifier.height(8.dp))
+                Text("Phone (newest first)", style = MaterialTheme.typography.labelLarge)
+                phone.forEach { Text(it, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall) }
+            }
+        }
+    }
 }

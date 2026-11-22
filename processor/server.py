@@ -9,26 +9,46 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.concurrency import run_in_threadpool
 from processor.audio_chain import AudioChain
 from processor.bridge import Hub, MAX_MESSAGE_BYTES, MODE, Outbox, Session
+from processor.debug_log import DebugLog
 from processor.test_mode import TestMode
 
 app = FastAPI(title="LipSync local processor")
 hub = Hub()
 loop = None
 CHAIN_CONTROLS = ("set_layer", "set_band")
+TEST_CONTROLS = ("set_test_mode", "set_monitor", "set_focus", "set_recording")
+debug = DebugLog()
 
 
 def pipeline_status():
     status = hub.chain.status() if hub.chain is not None else hub.idle_pipeline()
-    return {**status, "test": test_mode.status()}
+    return {**status, "test": test_mode.status(), "log": debug.recent(40)}
 
 
 def notify_viewers():
-    """Called from the model-loading thread when test mode changes state."""
+    """Called from worker threads when test mode changes state."""
     if loop is not None:
-        loop.call_soon_threadsafe(lambda: hub.publish(pipeline_status()))
+        loop.call_soon_threadsafe(lambda: hub.publish(pipeline_status(), include_phone=True))
 
 
-test_mode = TestMode(on_change=notify_viewers)
+def apply_control(message, source):
+    """Shared by the dashboard and the phone app. Raises ValueError if invalid."""
+    kind = message.get("type")
+    try:
+        if kind in CHAIN_CONTROLS:
+            hub.settings.update(message)
+        elif kind in TEST_CONTROLS:
+            test_mode.update(message)
+        else:
+            raise ValueError(f"unsupported control {kind!r}")
+    except ValueError as exc:
+        debug.log("warn", source, f"rejected {kind}: {exc}")
+        raise
+    details = {k: v for k, v in message.items() if k != "type"}
+    debug.log("info", source, f"{kind} {json.dumps(details)}")
+
+
+test_mode = TestMode(on_change=notify_viewers, log=debug.log)
 
 class FrameProcessor:
     """Load vision lazily; a missing face model does not stop raw audio."""
@@ -61,6 +81,7 @@ class FrameProcessor:
                 frame, info = process_frame(self.landmarker, frame, timestamp)
             except Exception as exc:
                 self.warning = f"Face tracking unavailable: {exc}"
+                debug.log("error", "vision", self.warning)
         if self.warning:
             info["warning"] = self.warning
         ok, encoded = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
@@ -117,14 +138,11 @@ async def viewer(sock: WebSocket):
                 message = json.loads(text) if len(text) <= 4096 else None
                 if not isinstance(message, dict):
                     raise ValueError("expected JSON object")
-                if message.get("type") in CHAIN_CONTROLS:
-                    hub.settings.update(message)
-                else:
-                    test_mode.update(message)
+                apply_control(message, "dashboard")
             except ValueError as exc:  # JSONDecodeError is a ValueError
                 outbox.put({"type": "control_error", "message": str(exc)})
                 continue
-            hub.publish(pipeline_status())
+            hub.publish(pipeline_status(), include_phone=True)
     except (WebSocketDisconnect, RuntimeError):
         pass
     finally:
@@ -163,26 +181,40 @@ async def capture(sock: WebSocket):
         hub.begin(session, outbox)
         hub.chain = chain
         test_mode.attach(session.id, session.sample_rate)
+        debug.log("info", "phone", f"connected: {session.device_name}, {session.sample_rate} Hz")
+        outbox.put(pipeline_status())
         sender = asyncio.create_task(send_loop(sock, outbox))
         worker = asyncio.create_task(process_video())
         while True:
             message = await receive_json(sock)
             if message.get("type") == "stop":
                 break
+            if message.get("type") in CHAIN_CONTROLS + TEST_CONTROLS:
+                try:  # the phone app drives the test; a bad request never ends capture
+                    apply_control(message, "phone")
+                except ValueError as exc:
+                    outbox.put({"type": "control_error", "message": str(exc)})
+                    continue
+                hub.publish(pipeline_status(), include_phone=True)
+                continue
             data = session.validate(message)
             if message["type"] == "audio":
                 try:
                     processed = chain.process(data)
                 except Exception as exc:  # never stop the relay: fall back to raw audio
                     chain.error, processed = f"Audio chain failed: {exc}", data
+                    debug.log("error", "audio", chain.error, every_s=5)
                 test_mode.feed(processed, message["first_sample"], message["capture_time_us"])
                 try:  # test mode: a separated voice or the lip-focused mix, delayed
                     processed = test_mode.output(len(processed) // 2) or processed
                 except Exception as exc:
                     test_mode.error = f"Test mode output failed: {exc}"
+                    debug.log("error", "test", test_mode.error, every_s=5)
                 hub.publish({**message, "pcm_base64": base64.b64encode(processed).decode()}, include_phone=True)
-                if message["seq"] % 5 == 0:  # meters every 100 ms
-                    hub.publish({**pipeline_status(), "session_id": session.id})
+                if message["seq"] % 5 == 0:  # meters every 100 ms; the phone every 500 ms
+                    test_mode.tick()
+                    hub.publish({**pipeline_status(), "session_id": session.id},
+                                include_phone=message["seq"] % 25 == 0)
             elif not pending.full():
                 pending.put_nowait((message, data))
             else:
@@ -190,6 +222,7 @@ async def capture(sock: WebSocket):
     except (WebSocketDisconnect, RuntimeError):
         pass
     except (ValueError, TimeoutError) as exc:
+        debug.log("error", "capture", f"closed: {exc or 'start timed out'}")
         with suppress(Exception):
             await sock.send_json({"type": "error", "message": str(exc)})
             await sock.close(code=1008)
@@ -199,6 +232,7 @@ async def capture(sock: WebSocket):
                 hub.chain = None
             test_mode.detach(session.id)
             hub.end(session)
+            debug.log("info", "phone", "capture ended")
         for task in (sender, worker):
             if task:
                 task.cancel()
