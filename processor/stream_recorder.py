@@ -21,7 +21,7 @@ MAX_SECONDS = 15 * 60
 
 class StreamRecorder:
     def __init__(self, root, log=None):
-        self.root = Path(root)
+        self.root = Path(root).resolve()  # ffmpeg resolves the frame list relative to itself
         self.log = log or (lambda *args, **kwargs: None)
         self.lock = threading.Lock()
         self.active = False
