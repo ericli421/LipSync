@@ -29,6 +29,11 @@ export function ListeningPage() {
   // Prerecorded fallback: the presenter can switch every listener to a saved recording.
   const [playback, setPlayback] = useState<Playback>({ active: false, file: null, position_s: null, at: 0 });
   const video = useRef<HTMLVideoElement>(null);
+  // Whether this judge wants the recording's sound. Kept across phone disconnects
+  // (when the presenter pivots to the recording); only the Listen/Mute button changes it.
+  const [videoSound, setVideoSound] = useState(false);
+  const wantsSound = useRef(false);
+  const [soundBlocked, setSoundBlocked] = useState(false);
 
   function stopAudio() {
     generation.current++;
@@ -143,7 +148,13 @@ export function ListeningPage() {
     if (!playback.active || !playback.file) { element.pause(); return; }
     const sync = () => {
       element.currentTime = (playback.position_s ?? 0) + (performance.now() - playback.at) / 1000;
-      void element.play().catch(() => undefined);
+      element.muted = !wantsSound.current;
+      element.play().then(() => setSoundBlocked(false)).catch(() => {
+        // The browser refused sound without a click on this page: play silently and ask for one.
+        element.muted = true;
+        setSoundBlocked(true);
+        void element.play().catch(() => undefined);
+      });
     };
     if (element.readyState >= 1) sync();
     else element.addEventListener("loadedmetadata", sync, { once: true });
@@ -151,19 +162,31 @@ export function ListeningPage() {
   }, [playback]);
   useEffect(() => {
     if (video.current) {
-      video.current.muted = !listening || !playback.active;
+      video.current.muted = !videoSound || !playback.active;
       video.current.volume = volume;
     }
     player.current?.setVolume(playback.active ? 0 : volume);  // the live feed stays silent meanwhile
-  }, [listening, playback.active, volume]);
+  }, [videoSound, playback.active, volume]);
+
+  // Listen/Mute while the recording plays: runs inside the click, so browsers allow sound.
+  function toggleVideoSound(force?: boolean) {
+    const element = video.current;
+    const next = force ?? (!videoSound || soundBlocked);
+    wantsSound.current = next;
+    setVideoSound(next);
+    if (!element) return;
+    element.muted = !next;
+    element.volume = volume;
+    if (next) element.play().then(() => setSoundBlocked(false)).catch(() => setSoundBlocked(true));
+  }
 
   async function toggleListening() {
-    if (player.current || listening) { stopAudio(); return; }
+    if (playback.active) { toggleVideoSound(); return; }
+    if (player.current || listening) { wantsSound.current = false; setVideoSound(false); stopAudio(); return; }
     const selected = currentSession.current;
-    if (!selected) {
-      if (playback.active) setListening(true);  // recording only: the video element plays the sound
-      return;
-    }
+    if (!selected) return;
+    wantsSound.current = true;  // keep sound if the presenter later switches to the recording
+    setVideoSound(true);
     const epoch = ++generation.current;
     setError(null);
     let next: BufferedPcmPlayer | null = null;
@@ -182,6 +205,7 @@ export function ListeningPage() {
     }
   }
 
+  const hearing = playback.active ? videoSound && !soundBlocked : listening;
   const connectionLabel = playback.active ? "Recorded demo" : session ? "Live session"
     : connection.startsWith("Waiting") ? "Waiting for presenter"
     : connection.startsWith("Connecting") ? "Connecting" : "Reconnecting";
@@ -200,8 +224,14 @@ export function ListeningPage() {
         <section className={styles.video} aria-label="Live camera preview">
           <canvas ref={canvas} aria-label="Presenter camera with selected person highlighted" hidden={playback.active} />
           <video ref={video} hidden={!playback.active} playsInline preload="auto" aria-label="Prerecorded LipSync demo"
+            onClick={() => toggleVideoSound(true)}
             src={playback.active && playback.file ? `/live/media/${playback.file.split("/").map(encodeURIComponent).join("/")}` : undefined}
-            style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+ />
+          {playback.active && (!videoSound || soundBlocked) && (
+            <button type="button" className={styles.soundPrompt} onClick={() => toggleVideoSound(true)}>
+              <Volume2 size={18} aria-hidden="true" /> Click for sound
+            </button>
+          )}
           {!hasFrame && !playback.active && <div className={styles.empty}>
             <p>{session ? "Waiting for the camera" : "Waiting for the presenter"}</p>
             <span>{session ? "The live picture will appear here." : "The live picture will appear when their phone connects."}</span>
@@ -209,9 +239,9 @@ export function ListeningPage() {
         </section>
         <div className={styles.controls} role="group" aria-label="Personal listening controls">
           <div className={styles.playback}>
-            <button type="button" className={styles.listen} disabled={!session && !playback.active} onClick={toggleListening} aria-pressed={listening}>
-              <span className={styles.playIcon} aria-hidden="true">{listening ? <VolumeX size={17} /> : <Play size={16} fill="currentColor" />}</span>
-              <span>{listening ? "Mute" : "Listen"}</span>
+            <button type="button" className={styles.listen} disabled={!session && !playback.active} onClick={toggleListening} aria-pressed={hearing}>
+              <span className={styles.playIcon} aria-hidden="true">{hearing ? <VolumeX size={17} /> : <Play size={16} fill="currentColor" />}</span>
+              <span>{hearing ? "Mute" : "Listen"}</span>
             </button>
             <label className={styles.volume}>
               {volume === 0 ? <VolumeX size={18} aria-hidden="true" /> : <Volume2 size={18} aria-hidden="true" />}
