@@ -1,0 +1,28 @@
+{
+  "description": "Runtime log snapshots only; raw recordings and local warm-up code changes excluded.",
+  "source_commit": "b81cce6eca6e51e902c37a35f9d4992391283d5d",
+  "captured_at": "2026-11-22T01:03:16.5001227-05:00",
+  "files": [
+    {
+      "name": "backend-error.log",
+      "bytes": 31311
+    },
+    {
+      "name": "backend.log",
+      "bytes": 53
+    },
+    {
+      "name": "dashboard-error.log",
+      "bytes": 239
+    },
+    {
+      "name": "dashboard.log",
+      "bytes": 340
+    },
+    {
+      "name": "lipsync-debug.log",
+      "bytes": 105917
+    }
+  ],
+  "timezone": "America/Toronto"
+}
