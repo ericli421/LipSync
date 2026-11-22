@@ -5,6 +5,10 @@ LipSync explores selective listening: separate candidate voices, then match thei
 speech rhythms to the selected person's lip motion. The current hardware client
 is a native Android APK; the laptop runs a local Python backend and web dashboard.
 
+- Prepare the next model experiment with [the Falcon/SepFormer comparison](docs/falcon-comparison.md):
+  export aligned input for SepFormer, then compare Falcon on the mix and both
+  candidates without changing the live pipeline.
+
 - Start with [the local Android demonstration](docs/local-android-demo.md) for
   live phone camera capture, mouth tracking, and raw audio monitoring. No account
   or Supabase setup is needed. Live voice separation is a subsequent milestone.

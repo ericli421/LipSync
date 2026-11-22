@@ -1,0 +1,23 @@
+INFO:     Started server process [17060]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:53080 - "WebSocket /ws/viewer" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:64639 - "WebSocket /ws/viewer" [accepted]
+INFO:     connection open
+INFO:     10.121.6.232:58810 - "WebSocket /ws/capture" [accepted]
+INFO:     connection open
+WARNING: Logging before InitGoogle() is written to STDERR
+W0000 00:00:1795316182.725811    8492 face_landmarker_graph.cc:181] Sets FaceBlendshapesGraph acceleration to xnnpack by default.
+INFO: Created TensorFlow Lite XNNPACK delegate for CPU.
+W0000 00:00:1795316182.737716   28300 inference_feedback_manager.cc:121] Feedback manager requires a model with a single signature inference. Disabling support for feedback tensors.
+W0000 00:00:1795316182.757108    2860 inference_feedback_manager.cc:121] Feedback manager requires a model with a single signature inference. Disabling support for feedback tensors.
+Fetching 4 files:   0%|          | 0/4 [00:00<?, ?it/s]Fetching 4 files: 100%|##########| 4/4 [00:00<00:00, 506.19it/s]
+[test] model too slow: 6 hops skipped (p95 130.0 ms > hop 250 ms)
+[test] model too slow: 9 hops skipped (p95 130.4 ms > hop 250 ms)
+[test] model too slow: 11 hops skipped (p95 130.5 ms > hop 250 ms)
+[test] model too slow: 12 hops skipped (p95 130.2 ms > hop 250 ms)
+[test] model too slow: 13 hops skipped (p95 130.6 ms > hop 250 ms)
+[test] model too slow: 14 hops skipped (p95 125.3 ms > hop 250 ms)
+[test] model too slow: 16 hops skipped (p95 127.2 ms > hop 250 ms)

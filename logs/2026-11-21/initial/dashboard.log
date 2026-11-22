@@ -1,0 +1,21 @@
+
+> dev
+> next dev
+
+▲ Next.js 16.4.6 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://100.87.182.52:3000
+✓ Ready in 1227ms
+✓ Running next.config.ts took 121ms
+Attention: Next.js now collects completely anonymous telemetry regarding usage.
+This information is used to shape Next.js' roadmap and prioritize features.
+You can learn more, including how to opt-out if you'd not like to participate in this anonymous program, by visiting the following URL:
+https://nextjs.org/telemetry
+
+
+✓ Generated AGENTS.md for AI agents. Set `agentRules: false` in next.config to disable.
+  Turbopack has seen frequent file updates and is waiting for the filesystem to settle (0.5s elapsed so far; last modified: "\\\\?\\C:\\Users\\octto\\Documents\\Code\\Group Project\\LipSync\\node_modules\\source-map-js\\lib").
+  Turbopack has seen frequent file updates and is waiting for the filesystem to settle (1.5s elapsed so far; last modified: "\\\\?\\C:\\Users\\octto\\Documents\\Code\\Group Project\\LipSync\\node_modules\\fraction.js\\dist").
+ GET /dashboard 200 in 514ms (next.js: 245ms, application-code: 269ms)
+ GET /dashboard 200 in 56ms (next.js: 3ms, application-code: 53ms)
+ GET /dashboard 200 in 75ms (next.js: 2ms, application-code: 73ms)

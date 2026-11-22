@@ -1,0 +1,16 @@
+{
+  "model": {
+    "model": "resepformer-wsj02mix",
+    "label": "ReSepFormer (fast on CPU; clean-speech trained)",
+    "device": "cpu",
+    "gpu": null,
+    "torch": "2.9.1+cpu"
+  },
+  "loading_ms": 9906.398399965838,
+  "infer_ms": 80.61069995164871,
+  "hop_budget_ms": 250,
+  "single_pass_within_hop": true,
+  "device": "cpu",
+  "torch": "2.9.1+cpu",
+  "quality_status": "not_evaluated_generated_input"
+}

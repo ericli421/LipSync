@@ -11,6 +11,31 @@ keep up: ReSepFormer, 15 s streamed in real time through the server, measured
 
 ## Setup (A3000)
 
+### One-click setup and local CPU test
+
+Double-click **Setup-Models.cmd** once to install the optional separation
+dependencies and cache/smoke-test the CPU model. It does not enable or run Falcon.
+Then double-click **Start-LipSync.cmd** to start the backend and dashboard.
+Normal startup does not install or load model weights.
+
+Install the updated `Lipsync/app/build/outputs/apk/debug/app-debug.apk` to get
+the phone's SepFormer controls and debug log. Existing APKs can still capture;
+use the dashboard controls if you have not updated the phone yet.
+
+On this PC use **Auto** (ReSepFormer on CPU), window **1 s**, hop **0.5 s**
+for an initial test. This trades context and update rate for more CPU headroom;
+it does not guarantee real-time performance. Enable **Test mode**, wait for the
+model to load, and try **Voice 1**, **Voice 2**, then **Focus** with headphones.
+Check skipped hops and the "Keeping up" indicator before judging quality.
+
+For a new A3000 setup, run `Setup-Models.cmd -Device cuda`. If CPU Torch already
+exists, replacement requires the explicit `-ReplaceTorch` switch. Existing CUDA
+Torch is retained by a normal setup run. The manual setup below remains available.
+
+Falcon's standalone offline harness is preserved separately. The unfinished live
+integration is parked under ignored `.tools/falcon-integration-draft/` and is not
+imported or shown by the app.
+
 ```powershell
 py -3.11 -m venv .venv-local
 .\.venv-local\Scripts\python.exe -m pip install -r processor/requirements.txt

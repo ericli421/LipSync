@@ -1,0 +1,28 @@
+INFO:     Started server process [7776]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     10.121.6.232:57526 - "WebSocket /ws/capture" [accepted]
+INFO:     connection open
+WARNING: Logging before InitGoogle() is written to STDERR
+W0000 00:00:1795309902.385731   28736 face_landmarker_graph.cc:181] Sets FaceBlendshapesGraph acceleration to xnnpack by default.
+INFO: Created TensorFlow Lite XNNPACK delegate for CPU.
+W0000 00:00:1795309902.397372   24192 inference_feedback_manager.cc:121] Feedback manager requires a model with a single signature inference. Disabling support for feedback tensors.
+W0000 00:00:1795309902.408728    2768 inference_feedback_manager.cc:121] Feedback manager requires a model with a single signature inference. Disabling support for feedback tensors.
+INFO:     127.0.0.1:52674 - "WebSocket /ws/viewer" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:65269 - "WebSocket /ws/viewer" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:51116 - "WebSocket /ws/viewer" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:50842 - "WebSocket /ws/viewer" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:53080 - "WebSocket /ws/viewer" [accepted]
+INFO:     connection open
+INFO:     10.121.6.232:57564 - "WebSocket /ws/capture" [accepted]
+INFO:     connection open
+W0000 00:00:1795310063.401226   17388 face_landmarker_graph.cc:181] Sets FaceBlendshapesGraph acceleration to xnnpack by default.
+W0000 00:00:1795310063.408237    6416 inference_feedback_manager.cc:121] Feedback manager requires a model with a single signature inference. Disabling support for feedback tensors.
+W0000 00:00:1795310063.423076   18116 inference_feedback_manager.cc:121] Feedback manager requires a model with a single signature inference. Disabling support for feedback tensors.
+INFO:     127.0.0.1:60249 - "WebSocket /ws/viewer" [accepted]
+INFO:     connection open

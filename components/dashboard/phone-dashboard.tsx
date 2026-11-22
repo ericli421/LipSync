@@ -413,8 +413,8 @@ export function PhoneDashboard() {
         </ol>
       </details>
       <p className="border-t px-5 py-3 text-sm text-muted-foreground">
-        Use headphones to avoid feedback. Voice isolation and captions are not
-        enabled yet; the voice band filter removes rumble and hiss only.
+        Use headphones to avoid feedback. Enable Separation test to try the two
+        voices and lip-picked Focus. Falcon and captions are not enabled.
       </p>
       {(info?.warning || audioError || controlError || pipeline?.error) && (
         <p role="alert" className="border-t px-5 py-3 text-sm text-destructive">

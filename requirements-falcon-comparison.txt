@@ -1,0 +1,3 @@
+# Separate Falcon environment only. Install PyTorch as in docs/model-validation.md.
+-r requirements-model.lock.txt
+scipy==1.17.1
