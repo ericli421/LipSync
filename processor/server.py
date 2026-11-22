@@ -17,6 +17,7 @@ from processor.bridge import Hub, MAX_MESSAGE_BYTES, MODE, Outbox, Session
 from processor.debug_log import DebugLog
 from processor.face_target import FaceTarget
 from processor.test_mode import TestMode
+from processor.listener import ListenerOutbox
 
 app = FastAPI(title="LipSync local processor")
 hub = Hub()
@@ -282,6 +283,31 @@ async def viewer(sock: WebSocket):
         sender.cancel()
         with suppress(asyncio.CancelledError):
             await sender
+
+@app.websocket("/ws/listen")
+async def listen(sock: WebSocket):
+    """Audience members receive final media but cannot control the presentation."""
+    await sock.accept()
+    outbox = ListenerOutbox()
+    hub.listeners.add(outbox)
+    outbox.put(hub.status())
+    outbox.put(pipeline_status())
+    sender = asyncio.create_task(send_loop(sock, outbox))
+    try:
+        while True:
+            event = await sock.receive()
+            if event['type'] == 'websocket.disconnect':
+                break
+            await sock.close(code=1008, reason='This listening connection is read-only')
+            break
+    except (WebSocketDisconnect, RuntimeError):
+        pass
+    finally:
+        hub.listeners.discard(outbox)
+        sender.cancel()
+        with suppress(asyncio.CancelledError):
+            await sender
+
 
 @app.websocket("/ws/capture")
 async def capture(sock: WebSocket):

@@ -1,22 +1,36 @@
+[CmdletBinding()]
+param([switch]$NoBrowser)
+
 $ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 Set-Location -LiteralPath $projectRoot
 $services = @()
+$transcriptStarted = $false
 
 function Wait-ForService([string]$Url, $Process, [string]$Name) {
     $deadline = (Get-Date).AddSeconds(90)
+    $lastFailure = 'No successful response'
     while ((Get-Date) -lt $deadline) {
         if ($Process.HasExited) { throw "$Name stopped. Check the logs in .tools\startup." }
         try {
-            $response = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 2
+            $response = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 10
             if ($response.StatusCode -eq 200) { return }
-        } catch { }
+            $lastFailure = "HTTP $($response.StatusCode)"
+        } catch { $lastFailure = $_.Exception.Message }
         Start-Sleep -Milliseconds 500
     }
-    throw "$Name did not become ready. Check the logs in .tools\startup."
+    throw "$Name did not become ready at $Url. Last check: $lastFailure. Check the logs in .tools\startup."
 }
 
 try {
+    $logDirectory = Join-Path $projectRoot '.tools\startup'
+    New-Item -ItemType Directory -Force -Path $logDirectory | Out-Null
+    $runStamp = Get-Date -Format 'yyyyMMdd-HHmmss-fff'
+    $launcherLog = Join-Path $logDirectory "launcher-$runStamp.log"
+    Start-Transcript -LiteralPath $launcherLog | Out-Null
+    $transcriptStarted = $true
+    Write-Host "Startup log: $launcherLog"
     if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
         $ffmpegTool = Get-ChildItem "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\Gyan.FFmpeg*" -Recurse -Filter ffmpeg.exe -ErrorAction SilentlyContinue | Select-Object -First 1
         if ($ffmpegTool) { $env:PATH = $ffmpegTool.DirectoryName + ';' + $env:PATH }
@@ -66,20 +80,28 @@ try {
         Set-Content -LiteralPath $dashboardStamp -Value $dashboardHash
     }
 
-    $logDirectory = Join-Path $projectRoot '.tools\startup'
-    New-Item -ItemType Directory -Force -Path $logDirectory | Out-Null
+    $previousLogs = @('backend.log', 'backend-error.log', 'dashboard.log', 'dashboard-error.log') |
+        ForEach-Object { Join-Path $logDirectory $_ } | Where-Object { Test-Path -LiteralPath $_ }
+    if ($previousLogs.Count) {
+        $history = Join-Path $logDirectory "history\$runStamp"
+        New-Item -ItemType Directory -Force -Path $history | Out-Null
+        $previousLogs | ForEach-Object { Copy-Item -LiteralPath $_ -Destination $history }
+    }
     Write-Host 'Starting the backend...'
     $backend = Start-Process -FilePath $python -ArgumentList '-m', 'uvicorn', 'processor.server:app', '--host', '0.0.0.0', '--port', '8000', '--ws-max-size', '750000', '--ws-max-queue', '4' -WorkingDirectory $projectRoot -WindowStyle Hidden -PassThru -RedirectStandardOutput "$logDirectory\backend.log" -RedirectStandardError "$logDirectory\backend-error.log"
     $services += $backend
     Wait-ForService 'http://127.0.0.1:8000/' $backend 'Backend'
 
     Write-Host 'Starting the dashboard...'
-    $dashboard = Start-Process -FilePath $npm -ArgumentList 'run', 'dev', '--', '--port', '3000' -WorkingDirectory $projectRoot -WindowStyle Hidden -PassThru -RedirectStandardOutput "$logDirectory\dashboard.log" -RedirectStandardError "$logDirectory\dashboard-error.log"
+    $dashboard = Start-Process -FilePath $npm -ArgumentList 'run', 'dev', '--', '--hostname', '0.0.0.0', '--port', '3000' -WorkingDirectory $projectRoot -WindowStyle Hidden -PassThru -RedirectStandardOutput "$logDirectory\dashboard.log" -RedirectStandardError "$logDirectory\dashboard-error.log"
     $services += $dashboard
-    Wait-ForService 'http://localhost:3000/dashboard' $dashboard 'Dashboard'
+    Wait-ForService 'http://127.0.0.1:3000/dashboard' $dashboard 'Dashboard'
+    Wait-ForService 'http://127.0.0.1:3000/listen' $dashboard 'Judge listening page'
+    & $python scripts/check_listener.py
+    if ($LASTEXITCODE -ne 0) { throw 'Judge media proxy failed. Check the backend and dashboard logs.' }
 
     Write-Host "`nLipSync is ready." -ForegroundColor Green
-    Write-Host 'Dashboard: http://localhost:3000/dashboard'
+    Write-Host 'Dashboard: http://127.0.0.1:3000/dashboard'
     Write-Host 'Separation models load when Test mode is enabled. Run Setup-Models.cmd once to install their dependencies. Falcon stays offline.'
     Write-Host "Debug log (share this file): $projectRoot\.tools\startup\lipsync-debug.log"
     Write-Host 'Phone addresses (use the Wi-Fi/Ethernet connection shared with your phone):'
@@ -87,11 +109,12 @@ try {
         $adapter = $_
         foreach ($address in $adapter.IPv4Address) {
             Write-Host ("  {0}: {1}:8000" -f $adapter.InterfaceAlias, $address.IPAddress)
+            Write-Host ("  Share with judges: http://{0}:3000/listen" -f $address.IPAddress) -ForegroundColor Cyan
         }
     }
     Write-Host "`nKeep this window open. Press Enter to stop both services."
     Write-Host "Logs: $logDirectory"
-    Start-Process 'http://localhost:3000/dashboard'
+    if (-not $NoBrowser) { Start-Process 'http://127.0.0.1:3000/dashboard' }
     Read-Host | Out-Null
 } catch {
     Write-Host "`nStartup failed: $($_.Exception.Message)" -ForegroundColor Red
@@ -103,4 +126,5 @@ try {
             & taskkill.exe /PID $service.Id /T /F 2>&1 | Out-Null
         }
     }
+    if ($transcriptStarted) { Stop-Transcript | Out-Null }
 }

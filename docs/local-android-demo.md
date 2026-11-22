@@ -20,6 +20,17 @@ root. It starts both services, opens the dashboard, and displays the local addre
 to enter on the phone. Keep the launcher window open and press Enter there to stop
 both services. Logs are saved under ignored `.tools/startup/`. If either port is
 already occupied, the launcher asks you to close the existing server first.
+The local dashboard uses `http://127.0.0.1:3000/dashboard` to avoid slow IPv6
+`localhost` resolution on Windows. Startup checks allow time for the first page
+compilation and verify both pages and the judge media connection. Each run saves
+a `launcher-<timestamp>.log`, including startup failures; previous service logs
+are copied into `.tools/startup/history/` before being replaced. For diagnostics
+without automatically opening a browser, run:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/start-local.ps1 -NoBrowser
+```
+
 The launcher refreshes Python or dashboard dependencies when their requirements
 or package lock changes after a pull; those launches may take longer and need
 internet access.
@@ -43,15 +54,13 @@ Open http://localhost:3000/dashboard on the laptop. Phone is the default source;
 it does not request access to the laptop camera. The root `.env.example` documents
 the optional processor address override. Browser-camera debugging defaults to
 `ws://127.0.0.1:8000/ws`.
-Phone dashboards default to the page hostname on port 8000, so another laptop can
-open `http://<processor-PC-IP>:3000/dashboard` to view the same phone feed and
-control the shared filters. Allow inbound ports 3000 and 8000 as needed. Leave
-`NEXT_PUBLIC_PROCESSOR_URL` unset unless you need a separate processor host.
-Remote audio monitoring uses AudioWorklet, which browsers require a secure context
-for; ordinary LAN HTTP supports video but may block audio playback. For a trusted
-local Chrome demonstration, the viewer can add the exact dashboard origin (for
-example `http://192.168.1.42:3000`) to `chrome://flags/#unsafely-treat-insecure-origin-as-secure`
-and relaunch Chrome. Remove that exception after the demonstration.
+Phone dashboards use the same-origin `/live/viewer` media proxy, so another
+laptop can open `http://<processor-PC-IP>:3000/dashboard` to see the phone feed
+and control shared filters. For judges, share the read-only
+`http://<processor-PC-IP>:3000/listen` instead; see [the listening guide](judge-listening.md).
+Only frontend port 3000 is needed by viewers; the phone still uses port 8000.
+Leave `NEXT_PUBLIC_PROCESSOR_URL` unset. Scheduled Web Audio supports monitoring
+on ordinary LAN HTTP without browser flags or certificate installation.
 Use Browser camera for the original video-only debugging mode.
 
 For face tracking, place `face_landmarker.task` in the repository root. If it is

@@ -138,6 +138,7 @@ class Hub:
         self.session = None
         self.owner = None
         self.viewers = set()
+        self.listeners = set()
         self.settings = ChainSettings()
         self.chain = None
 
@@ -151,7 +152,7 @@ class Hub:
         return self.session.status() if self.session else {"type": "waiting", "mode": MODE}
 
     def publish(self, message, include_phone=False):
-        for viewer in self.viewers:
+        for viewer in self.viewers | self.listeners:
             viewer.put(message)
         if include_phone and self.owner:
             self.owner.put(message)
@@ -160,11 +161,11 @@ class Hub:
         if self.session is not None:
             raise ValueError("another phone is already capturing")
         self.session, self.owner = session, outbox
-        for target in self.viewers | {outbox}:
+        for target in self.viewers | self.listeners | {outbox}:
             target.reset(session.status())
 
     def end(self, session):
         if self.session is session:
             self.session, self.owner = None, None
-            for target in self.viewers:
+            for target in self.viewers | self.listeners:
                 target.reset(self.status())

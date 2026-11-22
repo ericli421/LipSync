@@ -1,6 +1,10 @@
 # LipSync
 A project for CodeJam16
 
+- Share the live demonstration with judges using [the LAN listening page](docs/judge-listening.md).
+  Start the app and share `http://<PC-LAN-IP>:3000/listen`; judges click Listen
+  to hear the presenter's output and see the camera without changing controls.
+
 LipSync explores selective listening: separate candidate voices, then match their
 speech rhythms to the selected person's lip motion. The current hardware client
 is a native Android APK; the laptop runs a local Python backend and web dashboard.

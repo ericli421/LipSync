@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { viewerUrl } from "@/lib/processor-url";
+import { BufferedPcmPlayer } from "@/lib/buffered-pcm-player";
 import {
   SeparationTestPanel,
   type TestStatus,
@@ -58,20 +59,14 @@ export function PhoneDashboard() {
     else setControlError("Backend not connected");
   };
   const canvas = useRef<HTMLCanvasElement>(null);
-  const player = useRef<{
-    context: AudioContext;
-    node: AudioWorkletNode;
-  } | null>(null);
+  const player = useRef<BufferedPcmPlayer | null>(null);
   const audioGeneration = useRef(0);
   const currentSession = useRef<Session | null>(null);
   const stopAudio = () => {
     audioGeneration.current++;
     const old = player.current;
     player.current = null;
-    if (old) {
-      old.node.disconnect();
-      void old.context.close();
-    }
+    old?.close();
     setMonitor(false);
   };
   useEffect(() => {
@@ -131,7 +126,7 @@ export function PhoneDashboard() {
       } else if (message.session_id !== currentSession.current?.session_id)
         return;
       else if (message.type === "discontinuity")
-        player.current?.node.port.postMessage({ reset: true });
+        player.current?.reset();
       else if (message.type === "audio") {
         const bytes = Uint8Array.from(atob(message.pcm_base64), (c) =>
           c.charCodeAt(0),
@@ -147,13 +142,12 @@ export function PhoneDashboard() {
           setLevel(Math.sqrt(sum / samples.length));
           lastLevel = performance.now();
         }
-        player.current?.node.port.postMessage(
-          {
-            samples: samples.buffer,
-            rate: currentSession.current!.sample_rate,
-          },
-          [samples.buffer],
-        );
+        try {
+          player.current?.push(samples, currentSession.current!.sample_rate, message.seq, message.session_id);
+        } catch (error) {
+          stopAudio();
+          setAudioError(error instanceof Error ? error.message : "Audio playback unavailable");
+        }
       } else if (message.type === "video" && !drawing) {
         drawing = true;
         try {
@@ -210,28 +204,23 @@ export function PhoneDashboard() {
     setAudioError(null);
     const generation = ++audioGeneration.current;
     const sessionId = currentSession.current?.session_id;
-    const context = new AudioContext();
+    let pendingPlayer: BufferedPcmPlayer | null = null;
     try {
-      await context.resume();
-      await context.audioWorklet.addModule("/pcm-player.js");
-      if (
-        generation !== audioGeneration.current ||
-        sessionId !== currentSession.current?.session_id
-      ) {
-        await context.close();
+      pendingPlayer = new BufferedPcmPlayer();
+      await pendingPlayer.resume();
+      if (generation !== audioGeneration.current || sessionId !== currentSession.current?.session_id || !sessionId) {
+        pendingPlayer.close();
         return;
       }
-      const node = new AudioWorkletNode(context, "pcm-player");
-      node.connect(context.destination);
-      player.current = { context, node };
+      pendingPlayer.setSession(sessionId);
+      player.current = pendingPlayer;
       setMonitor(true);
     } catch (error) {
-      await context.close();
-      setAudioError(
-        error instanceof Error ? error.message : "Audio playback unavailable",
-      );
+      pendingPlayer?.close();
+      setAudioError(error instanceof Error ? error.message : "Audio playback unavailable");
     }
   }
+
   return (
     <section className="overflow-hidden rounded-xl border bg-card">
       <div className="flex flex-wrap items-center justify-between gap-4 border-b p-5">
