@@ -2,11 +2,11 @@
 
 # <!--🏆 --> LipSync
 
-**A step closer towards accessibility for deafness**
+**A step towards improving accessibility to all**
 
 Built in 36 hours at **CodeJam16** · <!-- 🥇 {prize_or_track} -->
 
-[🎥 Demo Video (to be added)]({https://www.youtube.com/watch?v=dQw4w9WgXcQ}) · [🚀 Live App (to be added)]({https://www.youtube.com/watch?v=dQw4w9WgXcQ}) · [📊 Pitch Deck (to be added)]({https://www.youtube.com/watch?v=dQw4w9WgXcQ})
+[🎥 Demo Video (to be added)](https://www.youtube.com/watch?v=dQw4w9WgXcQ) · [🚀 Live App (to be added)](https://www.youtube.com/watch?v=dQw4w9WgXcQ) · [📊 Pitch Deck (to be added)](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
 
 </div>
 
@@ -31,49 +31,49 @@ principles, we attempted to build a system that emulates the natural noise filte
 
 ## 🏗️ How We Built It
 
-| Layer     | Tech              |
-| --------- | ----------------- |
-| Frontend  | NextJS/Javascript |
-| Backend   | Python            |
-| AI / Data | {ai_stack}        |
-| Hosting   | {hosting}         |
+> To be added
 
 ## 🧗 Challenges We Ran Into
 
-{challenges}
+- EVERYTHING
+  > To be added
 
 ## 🎉 Accomplishments We're Proud Of
 
-{accomplishments}
+EVERYTHING
+
+> To be added
 
 ## 📚 What We Learned
 
-{learnings}
+NOTHING
+
+> To be added
 
 ## 🔮 What's Next
 
-- [ ] {next_step_1}
-- [ ] {next_step_2}
-- [ ] {next_step_3}
+- [ ] Port it over such into a system such as smart glasses and headset. This would be the ideal such pointing a phone towards people is simply quite awkward
+- [ ] Add translation features. An additional feature that we couldn't add due to time constraints
+- [ ] Decrease the latency and accuracy. Much of this can still be improved and optimized.
 
 ## ⚡ Run It Locally
 
 ```bash
-git clone https://github.com/{username}/{repo_name}.git
-cd {repo_name}
+git clone https://github.com/ericli421/LipSync.git
+cd LipSync
 npm install
 npm run dev
 ```
 
-> [!NOTE]
-> Copy `.env.example` to `.env` and add your API keys before running.
+<!-- > [!NOTE]
+> Copy `.env.example` to `.env.local` and add your API keys before running. -->
 
 ## 👥 Team
 
 <table>
   <tr>
-    <td align="center"><img src="https://github.com/{member_1}.png" width="80" alt=""/><br/><b>{member_1_name}</b><br/><sub>Full-stack</sub></td>
-    <td align="center"><img src="https://github.com/{member_2}.png" width="80" alt=""/><br/><b>{member_2_name}</b><br/><sub>Design</sub></td>
-    <td align="center"><img src="https://github.com/{member_3}.png" width="80" alt=""/><br/><b>{member_3_name}</b><br/><sub>ML</sub></td>
+    <td align="center"><img src="https://github.com/ericli421.png" width="80" alt=""/><br/><b>Eric Li</b><br/><sub>Worked on website</sub></td>
+    <td align="center"><img src="https://github.com/xaviierpoitras-cpu.png" width="80" alt=""/><br/><b>Xavier Poitras</b><br/><sub>Designed the project</sub></td>
+    <td align="center"><img src="https://github.com/octto76.png" width="80" alt=""/><br/><b>Ali Meguellati</b><br/><sub>Backend</sub></td>
   </tr>
 </table>
