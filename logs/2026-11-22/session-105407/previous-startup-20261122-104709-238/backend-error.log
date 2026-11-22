@@ -1,0 +1,16 @@
+INFO:     Started server process [28080]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:50438 - "WebSocket /ws/listen" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:63620 - "WebSocket /ws/viewer" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:49967 - "WebSocket /ws/viewer" [accepted]
+INFO:     connection open
+04:27:53 INFO [dashboard] set_test_mode {"enabled": true, "model": "auto", "window_s": 2, "hop_s": 0.25, "identity": false}
+04:27:53 INFO [test] loading model auto
+Fetching 4 files:   0%|          | 0/4 [00:00<?, ?it/s]Fetching 4 files: 100%|##########| 4/4 [00:00<00:00, 142.87it/s]
+Could not parse CUDA device string 'cuda': not enough values to unpack (expected 2, got 1). Falling back to device 0.
+04:27:56 INFO [test] loaded sepformer-whamr16k on NVIDIA RTX A3000 Laptop GPU in 3.6 s
+04:27:57 INFO [test] face picker ready (Light-ASD speaking detector, TalkSet weights)
