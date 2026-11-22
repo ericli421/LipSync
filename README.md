@@ -25,11 +25,11 @@ principles, we attempted to build a system that emulates the natural noise filte
 
 ## 🛠️ What It Does
 
-1- Captures the raw audio
-2- Passes a human frequency noise filtering
-3- Seperates the different audio sources using **SepFormer**
-4- Using video tracking we follow the user's gaze to focus on a speaker
-5- Using lip timing we identify the speaker's audio source and lower other sounds
+1. Captures the raw audio
+2. Passes a human frequency noise filtering
+3. Seperates the different audio sources using **SepFormer**
+4. Using video tracking we follow the user's gaze to focus on a speaker
+5. Using lip timing we identify the speaker's audio source and lower other sounds
 
 
 ## 🏗️ How We Built It
@@ -90,7 +90,6 @@ Three programs talking over Wi-Fi via WebSockets:
 ```bash
 git clone https://github.com/ericli421/LipSync.git
 cd LipSync
-git checkout separation-test-mode
 ```
 
 1. **First-time setup:** double-click `Setup-Models.cmd` (downloads the pinned models)
