@@ -1,0 +1,35 @@
+﻿**********************
+Windows PowerShell transcript start
+Start time: 20261122104709
+Username: DESKTOP-E82K8EB\octto
+RunAs User: DESKTOP-E82K8EB\octto
+Configuration Name: 
+Machine: DESKTOP-E82K8EB (Microsoft Windows NT 10.0.26200.0)
+Host Application: powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\Users\octto\Documents\Code\Group Project\LipSync\scripts\start-local.ps1
+Process ID: 18928
+PSVersion: 5.1.26100.9711
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.26100.9711
+BuildVersion: 10.0.26100.9711
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+Startup log: C:\Users\octto\Documents\Code\Group Project\LipSync\.tools\startup\launcher-20261122-104709-238.log
+
+Separation will run on the GPU: gpu NVIDIA RTX A3000 Laptop GPU (torch 2.9.1+cu126)
+Starting the backend...
+Starting the dashboard...
+Judge media connection verified through the frontend.
+
+LipSync is ready.
+Dashboard: http://127.0.0.1:3000/dashboard
+Separation models load when Test mode is enabled. Run Setup-Models.cmd once to install their dependencies. Falcon stays offline.
+Debug log (share this file): C:\Users\octto\Documents\Code\Group Project\LipSync\.tools\startup\lipsync-debug.log
+Phone addresses (use the Wi-Fi/Ethernet connection shared with your phone):
+  Wi-Fi: 10.121.99.85:8000
+  Share with judges: http://10.121.99.85:3000/listen
+
+Keep this window open. Press Enter to stop both services.
+Logs: C:\Users\octto\Documents\Code\Group Project\LipSync\.tools\startup

@@ -1,0 +1,13 @@
+
+> dev
+> next dev --hostname 0.0.0.0 --port 3000
+
+▲ Next.js 16.4.6 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://0.0.0.0:3000
+✓ Ready in 662ms
+✓ Running next.config.ts took 59ms
+
+ GET /dashboard 200 in 426ms (next.js: 199ms, application-code: 227ms)
+ GET /listen 200 in 65ms (next.js: 11ms, application-code: 54ms)
+ GET /dashboard 200 in 50ms (next.js: 2ms, application-code: 48ms)

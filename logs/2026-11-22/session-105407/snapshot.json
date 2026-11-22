@@ -1,0 +1,58 @@
+{
+  "description": "Runtime log snapshot, latest launcher transcript, and prior startup archive, preserved as captured. Dedicated debug log includes earlier sessions. Raw recordings and unrelated local code changes excluded.",
+  "source_commit": "34e9a1d8fb4d2af1c03a95736916c91845b12411",
+  "captured_at": "2026-11-22T10:54:07.7436959-05:00",
+  "timezone": "America/Toronto",
+  "files": [
+    {
+      "name": "backend-error.log",
+      "bytes": 33032,
+      "sha256": "401282fa531afe5c1cbc40133235e5601b0e75ac04b86402e7f4b9a28814071b"
+    },
+    {
+      "name": "backend.log",
+      "bytes": 53,
+      "sha256": "56e30a1544e9d15a0de273280fb2dff7a6243fa0f9c790d86c14699fcb50ecda"
+    },
+    {
+      "name": "dashboard-error.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "dashboard.log",
+      "bytes": 418,
+      "sha256": "408d594093745b36cd708bb6a935906aff5f9106fcbc2820558c29879dc994a8"
+    },
+    {
+      "name": "launcher-20261122-104709-238.log",
+      "bytes": 1605,
+      "sha256": "2d282136e1a3653a8b92ac78dbd1799862027398455a258cf9f1a8b2fe3db6ba"
+    },
+    {
+      "name": "lipsync-debug.log",
+      "bytes": 375330,
+      "sha256": "31bd700d17ee5b20f48a3f97317d1e00494c45153f46c9f4125a89e7f07ce6e9"
+    },
+    {
+      "name": "previous-startup-20261122-104709-238/backend-error.log",
+      "bytes": 1053,
+      "sha256": "41f063ec8d31be99e43454af52824066d5b5cb8934ed6818221cfa8a76f73230"
+    },
+    {
+      "name": "previous-startup-20261122-104709-238/backend.log",
+      "bytes": 53,
+      "sha256": "a58a48c94de35e98a2d1fafc942206096707acefff5d4ca8a3366a91c575fc31"
+    },
+    {
+      "name": "previous-startup-20261122-104709-238/dashboard-error.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "previous-startup-20261122-104709-238/dashboard.log",
+      "bytes": 417,
+      "sha256": "ff7d32c0166ceb6a818bf6ad894541f172575826f6b672871bc18cc1b90fb0c0"
+    }
+  ]
+}
