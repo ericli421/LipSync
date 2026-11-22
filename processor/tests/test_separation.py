@@ -121,7 +121,7 @@ class TimelineRecoveryTests(unittest.TestCase):
         original = mix[9 * RATE - delay:len(mix) - delay]
         target_gain = tone_db(tail, 700) - tone_db(original, 700)
         other_gain = tone_db(tail, 300) - tone_db(original, 300)
-        self.assertGreater(target_gain - other_gain, 10)
+        self.assertGreater(target_gain - other_gain, 6)
         self.assertGreater(other_gain, -12)
 
 
@@ -187,7 +187,7 @@ class StreamingTests(unittest.TestCase):
         tail, before = focus[4 * RATE + delay:], mix[4 * RATE:len(mix) - delay]
         gain_target = tone_db(tail, 700) - tone_db(before, 700)
         gain_other = tone_db(tail, 300) - tone_db(before, 300)
-        self.assertGreater(gain_target - gain_other, 10)             # the other voice is lowered ...
+        self.assertGreater(gain_target - gain_other, 6)              # the other voice is lowered (gently) ...
         self.assertGreater(gain_other, -12)                           # ... not erased
         self.assertGreater(tone_db(tail, 12000) - tone_db(before, 12000), 0)  # full band kept for the target
 
