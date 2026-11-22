@@ -5,8 +5,12 @@ mouth tracking and raw audio relay, and Next.js provides the demonstration view.
 There is no authentication, database, Supabase configuration, or cloud service.
 Only run this unauthenticated demonstration on your trusted local network.
 
-This milestone is **raw passthrough**: returned audio is the original microphone
-mix. Voice separation, automatic voice selection, and captions are not connected.
+Returned audio passes through the **live filter chain** (`processor/audio_chain.py`).
+Its first layer is a human-voice band gate: a streaming 4th-order Butterworth
+band-pass, 80 Hz–8 kHz by default, that treats rumble and hiss as background.
+Measured at 48 kHz: −0.6 dB at 100 Hz and 6 kHz, −3 dB at the corners, −24 dB at
+40 Hz, −19 dB at 12 kHz; 0.09 ms CPU per 20 ms block. At 16 kHz capture only the
+low cut applies. Voice separation, voice selection, and captions are not connected.
 The earlier offline experiments remain available separately.
 
 ## Start the laptop
@@ -81,7 +85,7 @@ the phone honoring the routing request. Output uses Android's selected media rou
 
 ## Protocol and extension points
 
-- `/` reports health, protocol version 1, and `raw_passthrough` mode.
+- `/` reports health, protocol version 1, and `live_filters` mode.
 - `/ws/capture` accepts one phone. Send a `start` JSON message with
   `protocol_version: 1`, `device_name`, `sample_rate`, `channels: 1`, and
   `format: "pcm_s16le"`. Supported rates are 48000, 16000, and 44100 Hz.
@@ -90,7 +94,8 @@ the phone honoring the routing request. Output uses Android's selected media rou
 - Audio messages use `type: "audio"`, `session_id`, consecutive `seq` starting at
   zero, `first_sample` starting at zero, `capture_time_us`, `timing`, and
   `pcm_base64`. Each block contains exactly 20 ms of little-endian mono PCM16.
-  Audio is returned unchanged to the phone and every viewer.
+  Audio is filtered (same length and metadata) and returned to the phone and
+  every viewer. With every layer off it is returned bit-exact.
 - Video messages use `type: "video"`, `session_id`, increasing `seq`,
   `capture_time_us`, `timing`, and `jpeg_base64`. The APK rotates JPEGs upright,
   scales their longest edge to at most 640 pixels, and targets 25 FPS. Only one
@@ -98,6 +103,12 @@ the phone honoring the routing request. Output uses Android's selected media rou
 - `/ws/viewer` sends the current `session` or `waiting` state, raw `audio`, and
   annotated `video` messages with `info` (face_found, openness, mouth_box, optional
   warning). Viewers never acquire the laptop's camera or microphone.
+- Viewers receive `type: "pipeline"` status (layer switches, band, input/output
+  dB, processing ms per block) on connect, after every change, and every 100 ms
+  while a phone streams. Viewers control the chain with
+  `{"type": "set_layer", "layer": "voice_band", "enabled": false}` and
+  `{"type": "set_band", "low_hz": 300, "high_hz": 3400}`; invalid requests get
+  `control_error`. Settings are shared by all viewers and kept across sessions.
 - `/ws` retains the browser debug protocol: binary JPEG in, metadata JSON followed
   by annotated binary JPEG out. This mode does not capture audio.
 

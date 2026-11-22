@@ -6,7 +6,7 @@ import threading
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
-from processor.bridge import Hub, Outbox, Session
+from processor.bridge import Hub, MODE, Outbox, Session
 from processor.server import app, hub
 
 
@@ -19,6 +19,20 @@ def audio(session, seq=0):
     return {"type": "audio", "session_id": session, "seq": seq,
             "capture_time_us": 1_000_000 + seq * 20_000, "timing": "device",
             "first_sample": seq * 960, "pcm_base64": base64.b64encode(bytes(range(256)) * 7 + bytes(range(128))).decode()}
+
+
+def receive(sock):
+    """Next message that is not a periodic pipeline meter update."""
+    while True:
+        message = sock.receive_json()
+        if message["type"] != "pipeline":
+            return message
+
+
+def same_audio(test, received, sent):
+    """Audio is filtered now: metadata is unchanged and the PCM keeps its length."""
+    test.assertEqual({**received, "pcm_base64": None}, {**sent, "pcm_base64": None})
+    test.assertEqual(len(base64.b64decode(received["pcm_base64"])), len(base64.b64decode(sent["pcm_base64"])))
 
 
 class ProtocolTests(unittest.TestCase):
@@ -79,7 +93,7 @@ class SocketTests(unittest.TestCase):
                     self.assertTrue(entered.wait(2))
                     message = audio(session)
                     phone.send_json(message)
-                    self.assertEqual(phone.receive_json(), message)
+                    same_audio(self, phone.receive_json(), message)
                     release.set()
                     self.assertEqual(phone.receive_json()["type"], "video_ack")
         finally:
@@ -87,28 +101,46 @@ class SocketTests(unittest.TestCase):
 
     def test_local_health_and_audio_fanout(self):
         with TestClient(app) as client:
-            self.assertEqual(client.get("/").json()["mode"], "raw_passthrough")
+            self.assertEqual(client.get("/").json()["mode"], MODE)
             with client.websocket_connect("/ws/viewer") as a, client.websocket_connect("/ws/viewer") as b:
                 self.assertEqual(a.receive_json()["type"], "waiting")
                 self.assertEqual(b.receive_json()["type"], "waiting")
                 with client.websocket_connect("/ws/capture") as phone:
                     phone.send_json(hello())
                     status = phone.receive_json()
-                    self.assertEqual(a.receive_json(), status)
-                    self.assertEqual(b.receive_json(), status)
+                    self.assertEqual(receive(a), status)
+                    self.assertEqual(receive(b), status)
                     message = audio(status["session_id"])
                     phone.send_json(message)
-                    self.assertEqual(phone.receive_json(), message)
-                    self.assertEqual(a.receive_json(), message)
-                    self.assertEqual(b.receive_json(), message)
+                    same_audio(self, phone.receive_json(), message)
+                    same_audio(self, receive(a), message)
+                    same_audio(self, receive(b), message)
                     with client.websocket_connect("/ws/capture") as other:
                         other.send_json(hello())
                         self.assertIn("already capturing", other.receive_json()["message"])
                     phone.send_json({"type": "stop"})
-                    self.assertEqual(a.receive_json()["type"], "waiting")
-                    self.assertEqual(b.receive_json()["type"], "waiting")
+                    self.assertEqual(receive(a)["type"], "waiting")
+                    self.assertEqual(receive(b)["type"], "waiting")
         self.assertIsNone(hub.session)
         self.assertFalse(hub.viewers)
+
+    def test_viewer_toggles_voice_band_and_bypass_is_exact(self):
+        with TestClient(app) as client, client.websocket_connect("/ws/viewer") as viewer:
+            self.assertEqual(viewer.receive_json()["type"], "waiting")
+            self.assertTrue(viewer.receive_json()["layers"]["voice_band"])  # settings before any phone
+            viewer.send_json({"type": "set_layer", "layer": "voice_band", "enabled": False})
+            self.assertFalse(viewer.receive_json()["layers"]["voice_band"])
+            viewer.send_json({"type": "set_layer", "layer": "warp_drive", "enabled": True})
+            self.assertEqual(viewer.receive_json()["type"], "control_error")
+            try:
+                with client.websocket_connect("/ws/capture") as phone:
+                    phone.send_json(hello())
+                    session = phone.receive_json()["session_id"]
+                    message = audio(session)
+                    phone.send_json(message)
+                    self.assertEqual(phone.receive_json(), message)  # layer off: raw bytes
+            finally:
+                hub.settings.update({"type": "set_layer", "layer": "voice_band", "enabled": True})
 
     def test_bad_json_and_sample_gap_close_capture(self):
         with TestClient(app) as client:
@@ -133,11 +165,11 @@ class SocketTests(unittest.TestCase):
                     viewer.receive_json()
                     phone.send_json(hello())
                     session = phone.receive_json()["session_id"]
-                    viewer.receive_json()
+                    receive(viewer)
                     phone.send_json({"type": "video", "session_id": session, "seq": 0,
                                      "capture_time_us": 100, "timing": "estimated", "jpeg_base64": "anBlZw=="})
                     self.assertEqual(phone.receive_json()["type"], "video_ack")
-                    self.assertEqual(base64.b64decode(viewer.receive_json()["jpeg_base64"]), b"processed")
+                    self.assertEqual(base64.b64decode(receive(viewer)["jpeg_base64"]), b"processed")
 
 
 if __name__ == "__main__":

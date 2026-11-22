@@ -7,7 +7,8 @@ import time
 import threading
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.concurrency import run_in_threadpool
-from processor.bridge import Hub, MAX_MESSAGE_BYTES, Outbox, Session
+from processor.audio_chain import AudioChain
+from processor.bridge import Hub, MAX_MESSAGE_BYTES, MODE, Outbox, Session
 
 app = FastAPI(title="LipSync local processor")
 hub = Hub()
@@ -58,7 +59,7 @@ class FrameProcessor:
 
 @app.get("/")
 def health():
-    return {"status": "ok", "protocol_version": 1, "mode": "raw_passthrough"}
+    return {"status": "ok", "protocol_version": 1, "mode": MODE}
 
 async def receive_json(sock):
     event = await sock.receive()
@@ -88,10 +89,21 @@ async def viewer(sock: WebSocket):
     outbox = Outbox()
     hub.viewers.add(outbox)
     outbox.put(hub.status())
+    outbox.put(hub.chain.status() if hub.chain is not None else hub.idle_pipeline())
     sender = asyncio.create_task(send_loop(sock, outbox))
     try:
         while True:
-            await sock.receive_text()
+            text = await sock.receive_text()
+            try:
+                message = json.loads(text) if len(text) <= 4096 else None
+                if not isinstance(message, dict):
+                    raise ValueError("expected JSON object")
+                hub.settings.update(message)
+            except ValueError as exc:  # JSONDecodeError is a ValueError
+                outbox.put({"type": "control_error", "message": str(exc)})
+                continue
+            status = hub.chain.status() if hub.chain is not None else hub.idle_pipeline()
+            hub.publish(status)
     except (WebSocketDisconnect, RuntimeError):
         pass
     finally:
@@ -123,7 +135,9 @@ async def capture(sock: WebSocket):
                 pending.task_done()
     try:
         session = Session.start(await asyncio.wait_for(receive_json(sock), 5))
+        chain = AudioChain(session.sample_rate, hub.settings)
         hub.begin(session, outbox)
+        hub.chain = chain
         sender = asyncio.create_task(send_loop(sock, outbox))
         worker = asyncio.create_task(process_video())
         while True:
@@ -132,7 +146,13 @@ async def capture(sock: WebSocket):
                 break
             data = session.validate(message)
             if message["type"] == "audio":
-                hub.publish(message, include_phone=True)
+                try:
+                    processed = chain.process(data)
+                except Exception as exc:  # never stop the relay: fall back to raw audio
+                    chain.error, processed = f"Audio chain failed: {exc}", data
+                hub.publish({**message, "pcm_base64": base64.b64encode(processed).decode()}, include_phone=True)
+                if message["seq"] % 5 == 0:  # meters every 100 ms
+                    hub.publish({**chain.status(), "session_id": session.id})
             elif not pending.full():
                 pending.put_nowait((message, data))
             else:
@@ -145,6 +165,8 @@ async def capture(sock: WebSocket):
             await sock.close(code=1008)
     finally:
         if session:
+            if hub.session is session:
+                hub.chain = None
             hub.end(session)
         for task in (sender, worker):
             if task:

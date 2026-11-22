@@ -5,6 +5,21 @@ import { viewerUrl } from "@/lib/processor-url";
 
 type Session = { session_id: string; device_name: string; sample_rate: number };
 type Info = { face_found: boolean; openness: number; warning?: string };
+type Pipeline = {
+  layers: { voice_band: boolean };
+  band: { low_hz: number; high_hz: number; effective_high_hz: number | null };
+  in_db: number | null;
+  out_db: number | null;
+  process_ms: number | null;
+  error: string | null;
+};
+const BANDS = [
+  { label: "Voice 80 Hz – 8 kHz", low_hz: 80, high_hz: 8000 },
+  { label: "Narrow 150 Hz – 5 kHz", low_hz: 150, high_hz: 5000 },
+  { label: "Telephone 300 Hz – 3.4 kHz", low_hz: 300, high_hz: 3400 },
+];
+const db = (value: number | null) =>
+  value === null ? "—" : `${value.toFixed(1)} dB`;
 export function PhoneDashboard() {
   const [state, setState] = useState("Connecting to backend…");
   const [session, setSession] = useState<Session | null>(null);
@@ -14,6 +29,15 @@ export function PhoneDashboard() {
   const [attempt, setAttempt] = useState(0);
   const [monitor, setMonitor] = useState(false);
   const [audioError, setAudioError] = useState<string | null>(null);
+  const [pipeline, setPipeline] = useState<Pipeline | null>(null);
+  const [controlError, setControlError] = useState<string | null>(null);
+  const socketRef = useRef<WebSocket | null>(null);
+  const control = (message: object) => {
+    setControlError(null);
+    if (socketRef.current?.readyState === WebSocket.OPEN)
+      socketRef.current.send(JSON.stringify(message));
+    else setControlError("Backend not connected");
+  };
   const canvas = useRef<HTMLCanvasElement>(null);
   const player = useRef<{
     context: AudioContext;
@@ -56,6 +80,7 @@ export function PhoneDashboard() {
     };
     try {
       socket = new WebSocket(viewerUrl());
+      socketRef.current = socket;
     } catch {
       setState("Invalid processor address. Check NEXT_PUBLIC_PROCESSOR_URL.");
       return;
@@ -68,6 +93,14 @@ export function PhoneDashboard() {
     socket.onmessage = async (event) => {
       if (closed) return;
       const message = JSON.parse(event.data);
+      if (message.type === "pipeline") {
+        setPipeline(message);
+        return;
+      }
+      if (message.type === "control_error") {
+        setControlError(message.message);
+        return;
+      }
       if (message.type === "session") {
         clear();
         currentSession.current = message;
@@ -220,7 +253,11 @@ export function PhoneDashboard() {
       <div className="grid gap-5 p-5 text-sm sm:grid-cols-4">
         <div>
           <p className="text-muted-foreground">Audio mode</p>
-          <p className="mt-1 font-medium">Raw passthrough</p>
+          <p className="mt-1 font-medium">
+            {pipeline?.layers.voice_band
+              ? "Voice band filter"
+              : "Raw passthrough"}
+          </p>
         </div>
         <div>
           <label htmlFor="phone-level" className="text-muted-foreground">
@@ -247,13 +284,94 @@ export function PhoneDashboard() {
           <p className="mt-1 font-mono">{fps}</p>
         </div>
       </div>
+      <div className="border-t p-5 text-sm">
+        <h3 className="font-semibold">Audio pipeline</h3>
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          <Button
+            variant={pipeline?.layers.voice_band ? "default" : "outline"}
+            aria-pressed={pipeline?.layers.voice_band ?? false}
+            disabled={!pipeline}
+            onClick={() =>
+              control({
+                type: "set_layer",
+                layer: "voice_band",
+                enabled: !pipeline?.layers.voice_band,
+              })
+            }
+          >
+            Voice band · {pipeline?.layers.voice_band ? "On" : "Off"}
+          </Button>
+          <label className="flex items-center gap-2">
+            <span className="text-muted-foreground">Band</span>
+            <select
+              className="rounded-md border bg-background px-2 py-1"
+              disabled={!pipeline}
+              value={BANDS.findIndex(
+                (b) =>
+                  b.low_hz === pipeline?.band.low_hz &&
+                  b.high_hz === pipeline?.band.high_hz,
+              )}
+              onChange={(event) => {
+                const band = BANDS[Number(event.target.value)];
+                if (band)
+                  control({
+                    type: "set_band",
+                    low_hz: band.low_hz,
+                    high_hz: band.high_hz,
+                  });
+              }}
+            >
+              <option value={-1} disabled>
+                Custom
+              </option>
+              {BANDS.map((band, index) => (
+                <option key={band.label} value={index}>
+                  {band.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <dl className="mt-3 grid gap-3 font-mono sm:grid-cols-4">
+          <div>
+            <dt className="font-sans text-muted-foreground">Input</dt>
+            <dd>{db(pipeline?.in_db ?? null)}</dd>
+          </div>
+          <div>
+            <dt className="font-sans text-muted-foreground">Output</dt>
+            <dd>{db(pipeline?.out_db ?? null)}</dd>
+          </div>
+          <div>
+            <dt className="font-sans text-muted-foreground">Removed</dt>
+            <dd>
+              {pipeline?.in_db != null && pipeline.out_db != null
+                ? `${(pipeline.in_db - pipeline.out_db).toFixed(1)} dB`
+                : "—"}
+            </dd>
+          </div>
+          <div>
+            <dt className="font-sans text-muted-foreground">Cost / 20 ms</dt>
+            <dd>
+              {pipeline?.process_ms != null
+                ? `${pipeline.process_ms.toFixed(2)} ms`
+                : "—"}
+            </dd>
+          </div>
+        </dl>
+        {pipeline?.band.effective_high_hz === null && (
+          <p className="mt-2 text-muted-foreground">
+            Phone is capturing at {session?.sample_rate} Hz: only the low cut is
+            applied.
+          </p>
+        )}
+      </div>
       <p className="border-t px-5 py-3 text-sm text-muted-foreground">
         Use headphones to avoid feedback. Voice isolation and captions are not
-        enabled in this milestone.
+        enabled yet; the voice band filter removes rumble and hiss only.
       </p>
-      {(info?.warning || audioError) && (
+      {(info?.warning || audioError || controlError || pipeline?.error) && (
         <p role="alert" className="border-t px-5 py-3 text-sm text-destructive">
-          {audioError ?? info?.warning}
+          {audioError ?? controlError ?? pipeline?.error ?? info?.warning}
         </p>
       )}
     </section>

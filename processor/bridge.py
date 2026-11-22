@@ -5,6 +5,10 @@ from collections import deque
 from dataclasses import dataclass, field
 import uuid
 
+from processor.audio_chain import ChainSettings
+
+MODE = "live_filters"
+
 MAX_MESSAGE_BYTES = 750_000
 
 
@@ -29,17 +33,19 @@ def payload(message, key, limit):
 
 
 class Outbox:
-    """At most 200 ms of PCM, one video frame, and bounded control messages."""
+    """At most 200 ms of PCM, one video frame, the latest pipeline status, and bounded controls."""
     def __init__(self):
         self.audio = deque()
         self.controls = deque(maxlen=8)
         self.video = None
+        self.pipeline = None
         self.ready = asyncio.Event()
 
     def reset(self, status):
         self.audio.clear()
         self.controls.clear()
         self.video = None
+        self.pipeline = None
         self.put(status)
 
     def put(self, message):
@@ -51,6 +57,8 @@ class Outbox:
             self.audio.append(message)
         elif kind == "video":
             self.video = message
+        elif kind == "pipeline":  # meters: only the newest matters
+            self.pipeline = message
         else:
             self.controls.append(message)
         self.ready.set()
@@ -61,6 +69,9 @@ class Outbox:
                 return self.controls.popleft()
             if self.audio:
                 return self.audio.popleft()
+            if self.pipeline is not None:
+                result, self.pipeline = self.pipeline, None
+                return result
             if self.video is not None:
                 result, self.video = self.video, None
                 return result
@@ -93,7 +104,7 @@ class Session:
     def status(self):
         return {"type": "session", "protocol_version": 1, "session_id": self.id,
                 "device_name": self.device_name, "sample_rate": self.sample_rate,
-                "channels": 1, "format": "pcm_s16le", "mode": "raw_passthrough"}
+                "channels": 1, "format": "pcm_s16le", "mode": MODE}
 
     def validate(self, message):
         if message.get("session_id") != self.id:
@@ -127,9 +138,17 @@ class Hub:
         self.session = None
         self.owner = None
         self.viewers = set()
+        self.settings = ChainSettings()
+        self.chain = None
+
+    def idle_pipeline(self):
+        version, layers, (low, high) = self.settings.snapshot()
+        return {"type": "pipeline", "layers": layers,
+                "band": {"low_hz": low, "high_hz": high, "effective_high_hz": high},
+                "in_db": None, "out_db": None, "process_ms": None, "error": None}
 
     def status(self):
-        return self.session.status() if self.session else {"type": "waiting", "mode": "raw_passthrough"}
+        return self.session.status() if self.session else {"type": "waiting", "mode": MODE}
 
     def publish(self, message, include_phone=False):
         for viewer in self.viewers:
