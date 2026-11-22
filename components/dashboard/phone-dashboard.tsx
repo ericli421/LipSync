@@ -19,6 +19,12 @@ type Pipeline = {
   process_ms: number | null;
   error: string | null;
   test?: TestStatus;
+  stream_recording?: {
+    recording: boolean;
+    seconds: number;
+    finishing: boolean;
+    last: string | null;
+  };
   face?: {
     mode: string;
     faces: number;
@@ -125,8 +131,7 @@ export function PhoneDashboard() {
         setState("Waiting for phone");
       } else if (message.session_id !== currentSession.current?.session_id)
         return;
-      else if (message.type === "discontinuity")
-        player.current?.reset();
+      else if (message.type === "discontinuity") player.current?.reset();
       else if (message.type === "audio") {
         const bytes = Uint8Array.from(atob(message.pcm_base64), (c) =>
           c.charCodeAt(0),
@@ -143,10 +148,19 @@ export function PhoneDashboard() {
           lastLevel = performance.now();
         }
         try {
-          player.current?.push(samples, currentSession.current!.sample_rate, message.seq, message.session_id);
+          player.current?.push(
+            samples,
+            currentSession.current!.sample_rate,
+            message.seq,
+            message.session_id,
+          );
         } catch (error) {
           stopAudio();
-          setAudioError(error instanceof Error ? error.message : "Audio playback unavailable");
+          setAudioError(
+            error instanceof Error
+              ? error.message
+              : "Audio playback unavailable",
+          );
         }
       } else if (message.type === "video" && !drawing) {
         drawing = true;
@@ -208,7 +222,11 @@ export function PhoneDashboard() {
     try {
       pendingPlayer = new BufferedPcmPlayer();
       await pendingPlayer.resume();
-      if (generation !== audioGeneration.current || sessionId !== currentSession.current?.session_id || !sessionId) {
+      if (
+        generation !== audioGeneration.current ||
+        sessionId !== currentSession.current?.session_id ||
+        !sessionId
+      ) {
         pendingPlayer.close();
         return;
       }
@@ -217,7 +235,9 @@ export function PhoneDashboard() {
       setMonitor(true);
     } catch (error) {
       pendingPlayer?.close();
-      setAudioError(error instanceof Error ? error.message : "Audio playback unavailable");
+      setAudioError(
+        error instanceof Error ? error.message : "Audio playback unavailable",
+      );
     }
   }
 
@@ -231,6 +251,14 @@ export function PhoneDashboard() {
           <p role="status" className="mt-1 text-sm text-muted-foreground">
             {state}
           </p>
+          {pipeline?.stream_recording?.last && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Last stream recording:{" "}
+              <span className="font-mono">
+                {pipeline.stream_recording.last}
+              </span>
+            </p>
+          )}
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={() => setAttempt((a) => a + 1)}>
@@ -242,6 +270,26 @@ export function PhoneDashboard() {
             onClick={toggleAudio}
           >
             {monitor ? "Mute monitor" : "Listen · headphones"}
+          </Button>
+          <Button
+            variant={
+              pipeline?.stream_recording?.recording ? "destructive" : "outline"
+            }
+            aria-pressed={pipeline?.stream_recording?.recording ?? false}
+            disabled={!session || pipeline?.stream_recording?.finishing}
+            title="Records what listeners hear plus the camera view, as an MP4 in recordings/"
+            onClick={() =>
+              control({
+                type: "set_stream_recording",
+                enabled: !pipeline?.stream_recording?.recording,
+              })
+            }
+          >
+            {pipeline?.stream_recording?.recording
+              ? `Stop recording (${Math.round(pipeline.stream_recording.seconds)} s)`
+              : pipeline?.stream_recording?.finishing
+                ? "Saving video…"
+                : "Record stream (video + audio)"}
           </Button>
         </div>
       </div>
