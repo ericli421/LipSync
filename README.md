@@ -1,26 +1,79 @@
-# LipSync
-A project for CodeJam16
+<div align="center">
 
-- Share the live demonstration with judges using [the LAN listening page](docs/judge-listening.md).
-  Start the app and share `http://<PC-LAN-IP>:3000/listen`; judges click Listen
-  to hear the presenter's output and see the camera without changing controls.
+# <!--🏆 --> LipSync
 
-LipSync explores selective listening: separate candidate voices, then match their
-speech rhythms to the selected person's lip motion. The current hardware client
-is a native Android APK; the laptop runs a local Python backend and web dashboard.
+**A step towards improving accessibility to all**
 
-- Prepare the next model experiment with [the Falcon/SepFormer comparison](docs/falcon-comparison.md):
-  export aligned input for SepFormer, then compare Falcon on the mix and both
-  candidates without changing the live pipeline.
+Built in 36 hours at **CodeJam16** · <!-- 🥇 {prize_or_track} -->
 
-- Start with [the local Android demonstration](docs/local-android-demo.md) for
-  live phone camera capture, mouth tracking, and raw audio monitoring. No account
-  or Supabase setup is needed. Live voice separation is a subsequent milestone.
+[🎥 Demo Video (to be added)](https://www.youtube.com/watch?v=dQw4w9WgXcQ) · [🚀 Live App (to be added)](https://www.youtube.com/watch?v=dQw4w9WgXcQ) · [📊 Pitch Deck (to be added)](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
 
-- Start with [the audio-only separation guide](docs/audio-only-separation.md):
-  run the public two-speaker mixture and export two candidate voices. No microphone
-  or personal audio data is needed.
-- Try [the recorded-video lip-matching experiment](docs/lip-matching.md) to track
-  two faces, inspect correlation scores, and play per-face selections.
-- The earlier [Falcon model-validation guide](docs/model-validation.md) documents
-  the independent lip-conditioned baseline and recorded-video experiment.
+</div>
+
+## 💡 Inspiration
+
+Hearing aids are currently the primary accessibility measure offered to people with hearing disabilities to allow them to hear better.
+While they work wonderfully, they are unfortunately still not fully adequate to being able to cover the full capacities of the human ear
+
+As of right now, One of the biggest issues with hearing aids is that they amplify all sounds captured. This is fine in most situations, but
+is a huge problem in crowded environments. Our human ear has a natural ability to filter out "noise" and focus mentally onto the voices that
+we are trying to listen to. However, a person with hearing disabilities loses that natural ability when they use hearing aids, and therefore
+struggle to hear well in noisy environments (which tends to happen in the real world).
+
+We were inspired by this issue to create a fix to this problem. Leveraging the leaps in Machine Learning in recent years and computer vision
+principles, we attempted to build a system that emulates the natural noise filtering system our brain performs.
+
+## 🛠️ What It Does
+
+- ✅ Analyzes live video feed and detects the person currently being focused
+- ✅ Detects and identifies the focused person's voice among the captured audio
+- ✅ Isolates that person's voice by lowering every other source of noise.
+
+## 🏗️ How We Built It
+
+> To be added
+
+## 🧗 Challenges We Ran Into
+
+- EVERYTHING
+  > To be added
+
+## 🎉 Accomplishments We're Proud Of
+
+EVERYTHING
+
+> To be added
+
+## 📚 What We Learned
+
+NOTHING
+
+> To be added
+
+## 🔮 What's Next
+
+- [ ] Port it over such into a system such as smart glasses and headset. This would be the ideal such pointing a phone towards people is simply quite awkward
+- [ ] Add translation features. An additional feature that we couldn't add due to time constraints
+- [ ] Decrease the latency and accuracy. Much of this can still be improved and optimized.
+
+## ⚡ Run It Locally
+
+```bash
+git clone https://github.com/ericli421/LipSync.git
+cd LipSync
+npm install
+npm run dev
+```
+
+<!-- > [!NOTE]
+> Copy `.env.example` to `.env.local` and add your API keys before running. -->
+
+## 👥 Team
+
+<table>
+  <tr>
+    <td align="center"><img src="https://github.com/ericli421.png" width="80" alt=""/><br/><b>Eric Li</b><br/><sub>Worked on website</sub></td>
+    <td align="center"><img src="https://github.com/xaviierpoitras-cpu.png" width="80" alt=""/><br/><b>Xavier Poitras</b><br/><sub>Designed the project</sub></td>
+    <td align="center"><img src="https://github.com/octto76.png" width="80" alt=""/><br/><b>Ali Meguellati</b><br/><sub>Backend</sub></td>
+  </tr>
+</table>
