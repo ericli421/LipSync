@@ -19,6 +19,7 @@ const nextConfig: NextConfig = {
       { source: "/live/listen", destination: new URL("/ws/listen", processor).toString() },
       { source: "/live/viewer", destination: new URL("/ws/viewer", processor).toString() },
       { source: "/live/health", destination: new URL("/", processor).toString() },
+      { source: "/live/media/:path*", destination: new URL("/media/:path*", processor).toString() },
     ];
   },
 };

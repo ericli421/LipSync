@@ -48,7 +48,8 @@ class TestMode:
         self.monitor = "focus"  # the person on camera, with everyone else lowered
         self.focus_style = "mask"
         # Boost the person on camera relative to everyone else; do not remove the rest.
-        self.focus_db, self.duck_db, self.lip_offset_ms = 6.0, -8.0, 0.0
+        # Gentle on purpose: the room and the other voice stay audible, just lower.
+        self.focus_db, self.duck_db, self.lip_offset_ms = 4.0, -6.0, 0.0
         self.record = False
         self.state, self.error, self.info = "off", None, None
         self.separate, self.loaded_model, self.loading = None, None, None

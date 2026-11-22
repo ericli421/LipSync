@@ -207,6 +207,10 @@ class LipPicker:
             self.reason = "holding (window disagrees)"
         return self.choice
 
+SMOOTH = np.hanning(9)[1:-1] / np.hanning(9)[1:-1].sum()  # ~7 bins (~330 Hz at 48 kHz, n=1024)
+SOFTEN = 0.85  # < 1 lifts weak target bins: shared bins are barely lowered
+
+
 class MaskFocus:
     """Organic Focus: lower the other voices inside the original, full-band audio.
 
@@ -218,7 +222,7 @@ class MaskFocus:
     16 kHz model) bins follow the target's overall share in 300 Hz-4 kHz. Without a
     confident target the original passes through unchanged.
     """
-    def __init__(self, rate, model_rate, boost=2.0, duck=0.4, attack_s=0.03, release_s=0.15):
+    def __init__(self, rate, model_rate, boost=2.0, duck=0.4, attack_s=0.05, release_s=0.35):
         self.rate = rate
         self.n = 1024 if rate >= 32000 else 512
         self.h = self.n // 4
@@ -253,7 +257,9 @@ class MaskFocus:
                 T = np.fft.rfft(self.frame_t * self.win)
                 pt, pn = np.abs(T) ** 2, np.abs(X - T) ** 2
                 mask = pt / (pt + pn + 1e-12)
-                mask = np.convolve(mask, [0.25, 0.5, 0.25], mode="same")
+                # Organic: smooth over ~300 Hz and soften (sqrt) so bins shared by the
+                # target and the room are barely lowered: no holes, no "underwater" sound.
+                mask = np.convolve(mask, SMOOTH, mode="same") ** SOFTEN
                 weight = np.abs(X[self.ref]) ** 2
                 self.share = float(np.sum(mask[self.ref] * weight) / max(np.sum(weight), 1e-12))
                 mask[self.high] = self.share

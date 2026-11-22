@@ -10,12 +10,15 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 import time
 import threading
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse
 from fastapi.concurrency import run_in_threadpool
 from processor.audio_chain import AudioChain
 from processor.bridge import Hub, MAX_MESSAGE_BYTES, MODE, Outbox, Session
 from processor.debug_log import DebugLog
 from processor.face_target import FaceTarget
+from processor.stream_recorder import StreamRecorder
+from processor.playback import Playback
 from processor.test_mode import TestMode
 from processor.listener import ListenerOutbox
 
@@ -25,6 +28,7 @@ loop = None
 CHAIN_CONTROLS = ("set_layer", "set_band")
 TEST_CONTROLS = ("set_test_mode", "set_monitor", "set_focus", "set_recording")
 VISION_CONTROLS = ("select_face",)
+STREAM_CONTROLS = ("set_stream_recording", "set_playback")
 face_target = FaceTarget()  # the person whose lips drive Focus; shared by phone and dashboard
 debug = DebugLog()
 LOG_FILE = Path(__file__).resolve().parents[1] / ".tools" / "startup" / "lipsync-debug.log"
@@ -112,7 +116,9 @@ video_stats = VideoStats()
 def pipeline_status():
     status = hub.chain.status() if hub.chain is not None else hub.idle_pipeline()
     return {**status, "test": test_mode.status(), "network": arrivals.status(),
-            "face": face_target.status(), "log": debug.recent(40)}
+            "face": face_target.status(), "stream_recording": stream_recorder.status(),
+            "playback": playback.status(),
+            "log": debug.recent(40)}
 
 
 def notify_viewers():
@@ -145,6 +151,10 @@ def apply_control(message, source):
             test_mode.update(message)
         elif kind in VISION_CONTROLS:
             select_face(message)
+        elif kind == "set_playback":
+            playback.update(message)
+        elif kind in STREAM_CONTROLS:
+            stream_recorder.update(message)
         else:
             raise ValueError(f"unsupported control {kind!r}")
     except ValueError as exc:
@@ -155,6 +165,16 @@ def apply_control(message, source):
 
 
 test_mode = TestMode(on_change=notify_viewers, log=debug.log)
+stream_recorder = StreamRecorder(Path(__file__).resolve().parents[1] / "recordings", log=debug.log)
+playback = Playback(Path(__file__).resolve().parents[1] / "recordings")
+
+
+def output_delay_s():
+    """How late the played audio is behind the camera (separated audio is delayed)."""
+    separator = test_mode.separator
+    if separator is None or test_mode.monitor == "original" or separator.error:
+        return 0.0
+    return separator.delay / separator.rate
 
 def played_text(chain):
     """What reached the headphones, if the chain reports it (stand-in chains may not)."""
@@ -231,6 +251,15 @@ class FrameProcessor:
         with self.lock:
             if self.landmarker is not None:
                 self.landmarker.close()
+
+@app.get("/media/{relative:path}")
+def media(relative: str):
+    """A saved recording for the prerecorded fallback (read-only, recordings/ only; supports seeking)."""
+    path = playback.resolve(relative)
+    if path is None:
+        raise HTTPException(status_code=404, detail="recording not found")
+    return FileResponse(path, media_type="video/mp4")
+
 
 @app.get("/")
 def health():
@@ -336,6 +365,7 @@ async def capture(sock: WebSocket):
                     test_mode.add_mouth(message["capture_time_us"], info, face)
                     video_stats.frame(info, frame_ms)
                     hub.publish({**message, "jpeg_base64": base64.b64encode(encoded).decode(), "info": info})
+                    stream_recorder.video(encoded, message["capture_time_us"], output_delay_s())
                     outbox.put({"type": "video_ack", "seq": message["seq"], "session_id": session.id})
             except Exception as exc:
                 outbox.put({"type": "video_ack", "seq": message["seq"], "session_id": session.id, "error": str(exc)})
@@ -358,7 +388,7 @@ async def capture(sock: WebSocket):
             message = await receive_json(sock)
             if message.get("type") == "stop":
                 break
-            if message.get("type") in CHAIN_CONTROLS + TEST_CONTROLS + VISION_CONTROLS:
+            if message.get("type") in CHAIN_CONTROLS + TEST_CONTROLS + VISION_CONTROLS + STREAM_CONTROLS:
                 try:  # the phone app drives the test; a bad request never ends capture
                     apply_control(message, "phone")
                 except ValueError as exc:
@@ -385,6 +415,8 @@ async def capture(sock: WebSocket):
                 except Exception as exc:
                     debug.log("error", "audio", f"auto volume failed: {exc}", every_s=5)
                 hub.publish({**message, "pcm_base64": base64.b64encode(processed).decode()}, include_phone=True)
+                stream_recorder.audio(processed, message["first_sample"], message["capture_time_us"],
+                                      session.sample_rate)
                 report_audio_progress(message["seq"], session.id, chain)
             elif not pending.full():
                 pending.put_nowait((message, data))
@@ -401,6 +433,7 @@ async def capture(sock: WebSocket):
         if session:
             if hub.session is session:
                 hub.chain = None
+                stream_recorder.stop()  # the next phone session restarts its sample clock
             test_mode.detach(session.id)
             hub.end(session)
             debug.log("info", "phone", "capture ended")
