@@ -59,6 +59,72 @@ def tone_db(x, freq, rate=RATE):
     return 20 * np.log10(abs(np.dot(x, np.exp(-2j * np.pi * freq * t))) / len(x) + 1e-12)
 
 
+class TimelineRecoveryTests(unittest.TestCase):
+    def replay_stall(self, monitor_before, picked):
+        """Drive the worker synchronously, with a two-second processing stall.
+
+        Capture/playback keep running during the stall, just as when inference
+        or Wi-Fi falls behind. No wall-clock sleeps or model weights are needed.
+        """
+        model_rate = 16000
+        s1, s2, _ = sources(12)
+        mix = s1 + s2
+        picker = LipPicker()
+        picker.pick = lambda *args: picked
+        with patch("processor.separation.threading.Thread.start"):
+            separator = StreamingSeparator(
+                RATE, fake_model(swap=False, rate=model_rate), window_s=2,
+                model_rate=model_rate, picker=picker,
+            )
+        outputs = []
+        try:
+            for start in range(0, len(mix), 960):
+                separator.feed(mix[start:start + 960])
+                block = separator.inbox.get_nowait()
+                x = separator.down.process(block)
+                separator.ring = np.concatenate([separator.ring, x])[-(separator.W + 2 * model_rate):]
+                separator.total8 += len(x)
+                if not 4 * RATE <= start < 6 * RATE:
+                    while separator.total8 >= separator.next_end:
+                        if separator._too_late(separator.next_end):
+                            separator.stats["skipped_hops"] += 1
+                        else:
+                            separator._hop(separator.next_end)
+                        separator.next_end += separator.H
+                monitor = monitor_before if start < 7 * RATE else "focus"
+                outputs.append(separator.read(960, monitor))
+            self.assertGreater(separator.stats["skipped_hops"], 0)
+            self.assertIsNone(separator.error)
+            # Both output buffers must still end at the worker's absolute
+            # sample position, even after playback overtakes them.
+            emitted = separator.emitted8 * separator.factor
+            self.assertEqual(separator.out_start + len(separator.voices), emitted)
+            self.assertEqual(
+                separator.focus_start + len(separator.focus_out),
+                emitted - separator.mask.latency - len(separator.mask.rest_o),
+            )
+            return np.concatenate(outputs), mix, separator.delay + separator.group
+        finally:
+            separator.close()
+
+    def test_focus_recovers_after_stall_without_a_face(self):
+        for monitor in ("focus", "voice1", "original"):
+            with self.subTest(monitor_before=monitor):
+                focus, mix, delay = self.replay_stall(monitor, picked=-1)
+                tail = focus[9 * RATE:]
+                original = mix[9 * RATE - delay:len(mix) - delay]
+                self.assertLess(np.std(tail - original) / np.std(original), 0.02)
+
+    def test_focus_still_boosts_the_target_after_stall(self):
+        focus, mix, delay = self.replay_stall("focus", picked=1)
+        tail = focus[9 * RATE:]
+        original = mix[9 * RATE - delay:len(mix) - delay]
+        target_gain = tone_db(tail, 700) - tone_db(original, 700)
+        other_gain = tone_db(tail, 300) - tone_db(original, 300)
+        self.assertGreater(target_gain - other_gain, 10)
+        self.assertGreater(other_gain, -12)
+
+
 class ResamplerTests(unittest.TestCase):
     def test_round_trip_is_transparent_in_voice_band(self):
         x = 0.5 * np.sin(2 * np.pi * 1000 * np.arange(RATE) / RATE)

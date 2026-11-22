@@ -359,7 +359,11 @@ class StreamingSeparator:
                     picks[lo - start: hi - start] = self.picks[lo - self.out_start: hi - self.out_start]
                 if start >= self.out_start and hi < end:
                     self.stats["underruns"] += 1
-                drop = max(0, start - self.out_start)  # consumed
+                # Retire only samples actually produced. Advancing past an empty
+                # buffer moves the worker's append position into the future;
+                # padding skipped hops then shifts voices and makes Focus read
+                # original audio that has not arrived (zeros).
+                drop = min(len(self.voices), max(0, start - self.out_start))
                 if drop:
                     self.voices, self.picks = self.voices[drop:], self.picks[drop:]
                     self.out_start += drop
@@ -384,7 +388,7 @@ class StreamingSeparator:
                 lo, hi = max(start, self.focus_start), min(end, self.focus_start + len(self.focus_out))
                 if hi > lo:
                     out[lo - start: hi - start] = self.focus_out[lo - self.focus_start: hi - self.focus_start]
-                drop = max(0, start - self.focus_start)
+                drop = min(len(self.focus_out), max(0, start - self.focus_start))
                 if drop:
                     self.focus_out = self.focus_out[drop:]
                     self.focus_start += drop
