@@ -9,6 +9,7 @@ import styles from "./listening-page.module.css";
 
 type Session = { session_id: string; sample_rate: number };
 type Summary = { source?: string; source_label: string; source_delay_ms: number; separation: boolean; state: string; layers: { voice_band?: boolean; auto_volume?: boolean } };
+type Playback = { active: boolean; file: string | null; position_s: number | null; at: number };
 const sourceNames: Record<string, string> = { original: "Original", focus: "Focus", voice1: "Voice 1", voice2: "Voice 2" };
 
 export function ListeningPage() {
@@ -25,6 +26,9 @@ export function ListeningPage() {
   const currentSession = useRef<Session | null>(null);
   const player = useRef<BufferedPcmPlayer | null>(null);
   const generation = useRef(0);
+  // Prerecorded fallback: the presenter can switch every listener to a saved recording.
+  const [playback, setPlayback] = useState<Playback>({ active: false, file: null, position_s: null, at: 0 });
+  const video = useRef<HTMLVideoElement>(null);
 
   function stopAudio() {
     generation.current++;
@@ -71,6 +75,11 @@ export function ListeningPage() {
             clear();
             setConnection("Waiting for the presenter’s phone…");
           } else if (message.type === "pipeline") {
+            if (message.playback) {
+              const next = message.playback;
+              setPlayback(previous => previous.active === next.active && previous.file === next.file
+                ? previous : { active: next.active, file: next.file, position_s: next.position_s, at: performance.now() });
+            }
             if (!message.session_id || message.session_id === currentSession.current?.session_id) setSummary(message);
           } else if (message.session_id !== currentSession.current?.session_id) {
             return;
@@ -127,10 +136,34 @@ export function ListeningPage() {
     };
   }, [attempt]);
 
+  // Start the recording where everyone else is, with sound only after Listen.
+  useEffect(() => {
+    const element = video.current;
+    if (!element) return;
+    if (!playback.active || !playback.file) { element.pause(); return; }
+    const sync = () => {
+      element.currentTime = (playback.position_s ?? 0) + (performance.now() - playback.at) / 1000;
+      void element.play().catch(() => undefined);
+    };
+    if (element.readyState >= 1) sync();
+    else element.addEventListener("loadedmetadata", sync, { once: true });
+    return () => element.removeEventListener("loadedmetadata", sync);
+  }, [playback]);
+  useEffect(() => {
+    if (video.current) {
+      video.current.muted = !listening || !playback.active;
+      video.current.volume = volume;
+    }
+    player.current?.setVolume(playback.active ? 0 : volume);  // the live feed stays silent meanwhile
+  }, [listening, playback.active, volume]);
+
   async function toggleListening() {
     if (player.current || listening) { stopAudio(); return; }
     const selected = currentSession.current;
-    if (!selected) return;
+    if (!selected) {
+      if (playback.active) setListening(true);  // recording only: the video element plays the sound
+      return;
+    }
     const epoch = ++generation.current;
     setError(null);
     let next: BufferedPcmPlayer | null = null;
@@ -149,7 +182,7 @@ export function ListeningPage() {
     }
   }
 
-  const connectionLabel = session ? "Live session"
+  const connectionLabel = playback.active ? "Recorded demo" : session ? "Live session"
     : connection.startsWith("Waiting") ? "Waiting for presenter"
     : connection.startsWith("Connecting") ? "Connecting" : "Reconnecting";
   const sourceName = session && summary ? sourceNames[summary.source ?? ""] ?? summary.source_label : "—";
@@ -159,21 +192,24 @@ export function ListeningPage() {
       <header className={styles.header}>
         <Link href="/" className={styles.wordmark} aria-label="LipSync home">lipsync</Link>
         <p className={styles.connection} role="status" aria-label={connection}>
-          <span>{connectionLabel}</span><span className={styles.dot} data-live={!!session} aria-hidden="true" />
+          <span>{connectionLabel}</span><span className={styles.dot} data-live={!!session || playback.active} aria-hidden="true" />
         </p>
       </header>
       <main className={styles.main}>
         <h1 className="sr-only">Live listening</h1>
         <section className={styles.video} aria-label="Live camera preview">
-          <canvas ref={canvas} aria-label="Presenter camera with selected person highlighted" />
-          {!hasFrame && <div className={styles.empty}>
+          <canvas ref={canvas} aria-label="Presenter camera with selected person highlighted" hidden={playback.active} />
+          <video ref={video} hidden={!playback.active} playsInline preload="auto" aria-label="Prerecorded LipSync demo"
+            src={playback.active && playback.file ? `/live/media/${playback.file.split("/").map(encodeURIComponent).join("/")}` : undefined}
+            style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+          {!hasFrame && !playback.active && <div className={styles.empty}>
             <p>{session ? "Waiting for the camera" : "Waiting for the presenter"}</p>
             <span>{session ? "The live picture will appear here." : "The live picture will appear when their phone connects."}</span>
           </div>}
         </section>
         <div className={styles.controls} role="group" aria-label="Personal listening controls">
           <div className={styles.playback}>
-            <button type="button" className={styles.listen} disabled={!session} onClick={toggleListening} aria-pressed={listening}>
+            <button type="button" className={styles.listen} disabled={!session && !playback.active} onClick={toggleListening} aria-pressed={listening}>
               <span className={styles.playIcon} aria-hidden="true">{listening ? <VolumeX size={17} /> : <Play size={16} fill="currentColor" />}</span>
               <span>{listening ? "Mute" : "Listen"}</span>
             </button>

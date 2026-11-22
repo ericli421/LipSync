@@ -19,6 +19,12 @@ type Pipeline = {
   process_ms: number | null;
   error: string | null;
   test?: TestStatus;
+  playback?: {
+    active: boolean;
+    file: string | null;
+    position_s: number | null;
+    files: string[];
+  };
   stream_recording?: {
     recording: boolean;
     seconds: number;
@@ -57,6 +63,7 @@ export function PhoneDashboard() {
   const [audioError, setAudioError] = useState<string | null>(null);
   const [pipeline, setPipeline] = useState<Pipeline | null>(null);
   const [controlError, setControlError] = useState<string | null>(null);
+  const [recordingChoice, setRecordingChoice] = useState("");
   const socketRef = useRef<WebSocket | null>(null);
   const control = (message: object) => {
     setControlError(null);
@@ -251,6 +258,49 @@ export function PhoneDashboard() {
           <p role="status" className="mt-1 text-sm text-muted-foreground">
             {state}
           </p>
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={pipeline?.playback?.active ?? false}
+                disabled={!pipeline?.playback?.files.length}
+                onChange={(event) =>
+                  control({
+                    type: "set_playback",
+                    enabled: event.target.checked,
+                    file: recordingChoice || undefined,
+                  })
+                }
+              />
+              <span>
+                Play recording to listeners instead of live
+                {pipeline?.playback?.active ? " · ON" : ""}
+              </span>
+            </label>
+            <select
+              className="max-w-64 rounded-md border bg-background px-2 py-1 text-xs"
+              value={pipeline?.playback?.file ?? recordingChoice}
+              disabled={!pipeline?.playback?.files.length}
+              onChange={(event) => {
+                setRecordingChoice(event.target.value);
+                if (pipeline?.playback?.active)
+                  control({
+                    type: "set_playback",
+                    enabled: true,
+                    file: event.target.value,
+                  });
+              }}
+            >
+              {!pipeline?.playback?.files.length && (
+                <option value="">No recordings yet</option>
+              )}
+              {pipeline?.playback?.files.map((file) => (
+                <option key={file} value={file}>
+                  {file}
+                </option>
+              ))}
+            </select>
+          </div>
           {pipeline?.stream_recording?.last && (
             <p className="mt-1 text-xs text-muted-foreground">
               Last stream recording:{" "}

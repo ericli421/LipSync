@@ -42,6 +42,9 @@ class ListenerOutbox(Outbox):
                                  if key in ('voice_band', 'auto_volume')}}
             if message.get('session_id'):
                 public['session_id'] = message['session_id']
+            shown = message.get('playback') or {}
+            public['playback'] = {'active': bool(shown.get('active')), 'file': shown.get('file'),
+                                  'position_s': shown.get('position_s')}
         elif kind == 'discontinuity':
             public = {key: message[key] for key in ('type', 'session_id') if key in message}
         else:

@@ -10,13 +10,15 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 import time
 import threading
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse
 from fastapi.concurrency import run_in_threadpool
 from processor.audio_chain import AudioChain
 from processor.bridge import Hub, MAX_MESSAGE_BYTES, MODE, Outbox, Session
 from processor.debug_log import DebugLog
 from processor.face_target import FaceTarget
 from processor.stream_recorder import StreamRecorder
+from processor.playback import Playback
 from processor.test_mode import TestMode
 from processor.listener import ListenerOutbox
 
@@ -26,7 +28,7 @@ loop = None
 CHAIN_CONTROLS = ("set_layer", "set_band")
 TEST_CONTROLS = ("set_test_mode", "set_monitor", "set_focus", "set_recording")
 VISION_CONTROLS = ("select_face",)
-STREAM_CONTROLS = ("set_stream_recording",)
+STREAM_CONTROLS = ("set_stream_recording", "set_playback")
 face_target = FaceTarget()  # the person whose lips drive Focus; shared by phone and dashboard
 debug = DebugLog()
 LOG_FILE = Path(__file__).resolve().parents[1] / ".tools" / "startup" / "lipsync-debug.log"
@@ -115,6 +117,7 @@ def pipeline_status():
     status = hub.chain.status() if hub.chain is not None else hub.idle_pipeline()
     return {**status, "test": test_mode.status(), "network": arrivals.status(),
             "face": face_target.status(), "stream_recording": stream_recorder.status(),
+            "playback": playback.status(),
             "log": debug.recent(40)}
 
 
@@ -148,6 +151,8 @@ def apply_control(message, source):
             test_mode.update(message)
         elif kind in VISION_CONTROLS:
             select_face(message)
+        elif kind == "set_playback":
+            playback.update(message)
         elif kind in STREAM_CONTROLS:
             stream_recorder.update(message)
         else:
@@ -161,6 +166,7 @@ def apply_control(message, source):
 
 test_mode = TestMode(on_change=notify_viewers, log=debug.log)
 stream_recorder = StreamRecorder(Path(__file__).resolve().parents[1] / "recordings", log=debug.log)
+playback = Playback(Path(__file__).resolve().parents[1] / "recordings")
 
 
 def output_delay_s():
@@ -245,6 +251,15 @@ class FrameProcessor:
         with self.lock:
             if self.landmarker is not None:
                 self.landmarker.close()
+
+@app.get("/media/{relative:path}")
+def media(relative: str):
+    """A saved recording for the prerecorded fallback (read-only, recordings/ only; supports seeking)."""
+    path = playback.resolve(relative)
+    if path is None:
+        raise HTTPException(status_code=404, detail="recording not found")
+    return FileResponse(path, media_type="video/mp4")
+
 
 @app.get("/")
 def health():
