@@ -1,0 +1,76 @@
+INFO:     Started server process [9304]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:59050 - "WebSocket /ws/viewer" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:63173 - "WebSocket /ws/viewer" [accepted]
+INFO:     connection open
+INFO:     10.121.6.232:60472 - "WebSocket /ws/capture" [accepted]
+INFO:     connection open
+23:55:59 INFO [phone] connected: samsung SM-G981W, 48000 Hz
+WARNING: Logging before InitGoogle() is written to STDERR
+W0000 00:00:1795323361.519193   21932 face_landmarker_graph.cc:181] Sets FaceBlendshapesGraph acceleration to xnnpack by default.
+INFO: Created TensorFlow Lite XNNPACK delegate for CPU.
+W0000 00:00:1795323361.534661   14796 inference_feedback_manager.cc:121] Feedback manager requires a model with a single signature inference. Disabling support for feedback tensors.
+W0000 00:00:1795323361.546505   14796 inference_feedback_manager.cc:121] Feedback manager requires a model with a single signature inference. Disabling support for feedback tensors.
+23:56:04 INFO [stream] 5 s: 250 blocks, max arrival gap 141 ms, 1 gaps > 100 ms, in -42.5 dB, out -50.8 dB, played -31.7 dB (auto volume +19.1 dB), video: 6.6 fps, face found 0%
+23:56:09 INFO [stream] 5 s: 250 blocks, max arrival gap 77 ms, 0 gaps > 100 ms, in -43.7 dB, out -48.4 dB, played -23.7 dB (auto volume +24.7 dB), video: 10.2 fps, face found 0%
+23:56:14 INFO [stream] 5 s: 250 blocks, max arrival gap 51 ms, 0 gaps > 100 ms, in -40.9 dB, out -44.5 dB, played -19.9 dB (auto volume +24.6 dB), video: 10.0 fps, face found 0%
+23:56:19 INFO [stream] 5 s: 250 blocks, max arrival gap 113 ms, 1 gaps > 100 ms, in -43.3 dB, out -49.7 dB, played -24.4 dB (auto volume +25.3 dB), video: 10.4 fps, face found 0%
+23:56:24 INFO [stream] 5 s: 250 blocks, max arrival gap 40 ms, 0 gaps > 100 ms, in -33.9 dB, out -35.2 dB, played -15.6 dB (auto volume +19.7 dB), video: 10.2 fps, face found 0%
+23:56:29 INFO [stream] 5 s: 250 blocks, max arrival gap 57 ms, 0 gaps > 100 ms, in -34.7 dB, out -36.2 dB, played -26.1 dB (auto volume +10.2 dB), video: 10.0 fps, face found 68%
+23:56:34 INFO [stream] 5 s: 250 blocks, max arrival gap 54 ms, 0 gaps > 100 ms, in -40.6 dB, out -45.5 dB, played -30.2 dB (auto volume +15.3 dB), video: 10.6 fps, face found 11%
+23:56:39 INFO [stream] 5 s: 250 blocks, max arrival gap 59 ms, 0 gaps > 100 ms, in -39.6 dB, out -44.2 dB, played -26.9 dB (auto volume +17.3 dB), video: 10.2 fps, face found 0%
+23:56:44 INFO [stream] 5 s: 250 blocks, max arrival gap 53 ms, 0 gaps > 100 ms, in -31.6 dB, out -32.1 dB, played -19.3 dB (auto volume +12.7 dB), video: 10.2 fps, face found 25%
+23:56:49 INFO [stream] 5 s: 250 blocks, max arrival gap 59 ms, 0 gaps > 100 ms, in -25.7 dB, out -26.0 dB, played -23.6 dB (auto volume +2.4 dB), video: 9.0 fps, face found 69%
+23:56:54 INFO [stream] 5 s: 250 blocks, max arrival gap 57 ms, 0 gaps > 100 ms, in -45.8 dB, out -53.0 dB, played -48.8 dB (auto volume +4.1 dB), video: 10.0 fps, face found 58%
+23:56:59 INFO [stream] 5 s: 250 blocks, max arrival gap 61 ms, 0 gaps > 100 ms, in -41.2 dB, out -51.3 dB, played -38.9 dB (auto volume +12.4 dB), video: 8.0 fps, face found 100%
+23:57:04 INFO [stream] 5 s: 250 blocks, max arrival gap 63 ms, 0 gaps > 100 ms, in -48.3 dB, out -49.8 dB, played -29.6 dB (auto volume +20.2 dB), video: 8.4 fps, face found 100%
+23:57:09 INFO [stream] 5 s: 250 blocks, max arrival gap 90 ms, 0 gaps > 100 ms, in -46.0 dB, out -51.9 dB, played -25.1 dB (auto volume +26.8 dB), video: 8.6 fps, face found 100%
+23:57:14 INFO [stream] 5 s: 250 blocks, max arrival gap 64 ms, 0 gaps > 100 ms, in -44.5 dB, out -51.4 dB, played -23.7 dB (auto volume +27.7 dB), video: 8.4 fps, face found 100%
+23:57:19 INFO [stream] 5 s: 250 blocks, max arrival gap 66 ms, 0 gaps > 100 ms, in -42.8 dB, out -46.6 dB, played -26.0 dB (auto volume +20.6 dB), video: 8.2 fps, face found 100%
+23:57:22 INFO [dashboard] set_test_mode {"enabled": true, "model": "auto", "window_s": 2, "hop_s": 0.25, "identity": false}
+23:57:22 INFO [test] loading model auto
+Fetching 4 files:   0%|          | 0/4 [00:00<?, ?it/s]Fetching 4 files: 100%|##########| 4/4 [00:00<00:00, 249.16it/s]
+23:57:24 INFO [stream] 5 s: 250 blocks, max arrival gap 109 ms, 1 gaps > 100 ms, in -42.5 dB, out -47.6 dB, played -26.6 dB (auto volume +21.0 dB), video: 8.4 fps, face found 100%
+Could not parse CUDA device string 'cuda': not enough values to unpack (expected 2, got 1). Falling back to device 0.
+23:57:26 INFO [test] loaded sepformer-whamr16k on NVIDIA RTX A3000 Laptop GPU in 4.0 s
+23:57:26 INFO [test] separating: window 2.0 s, hop 0.25 s, delay 750 ms, input 48000 Hz, model 16000 Hz
+23:57:29 INFO [stream] 5 s: 250 blocks, max arrival gap 88 ms, 0 gaps > 100 ms, in -41.0 dB, out -51.1 dB, played -26.3 dB (auto volume +24.8 dB), video: 8.4 fps, face found 100%
+23:57:29 INFO [test] sepformer-whamr16k on NVIDIA RTX A3000 Laptop GPU | window 2.0 s, hop 0.25 s, delay 750 ms | model 143/155 ms (median/p95) | hops 7, dropped late 0 (10 s), playback gaps 0 | voices -88.1/-60.5 dB, avg gap 14.7 dB | lip pick: confirming switch 43%, matched 29%, ambiguous 29% -> voice 2 | monitor original | voice lock: off
+23:57:34 INFO [stream] 5 s: 250 blocks, max arrival gap 73 ms, 0 gaps > 100 ms, in -42.9 dB, out -46.1 dB, played -25.7 dB (auto volume +20.4 dB), video: 9.0 fps, face found 100%
+23:57:34 INFO [test] sepformer-whamr16k on NVIDIA RTX A3000 Laptop GPU | window 2.0 s, hop 0.25 s, delay 750 ms | model 143/145 ms (median/p95) | hops 27, dropped late 0 (10 s), playback gaps 0 | voices -101.8/-75.1 dB, avg gap 18.8 dB | lip pick: matched 45%, confirming switch 30%, ambiguous 25% -> voice 1 | monitor original | voice lock: off
+23:57:39 INFO [stream] 5 s: 250 blocks, max arrival gap 77 ms, 0 gaps > 100 ms, in -41.6 dB, out -49.9 dB, played -28.2 dB (auto volume +21.7 dB), video: 8.8 fps, face found 100%
+23:57:39 INFO [test] sepformer-whamr16k on NVIDIA RTX A3000 Laptop GPU | window 2.0 s, hop 0.25 s, delay 750 ms | model 143/146 ms (median/p95) | hops 47, dropped late 0 (10 s), playback gaps 0 | voices -69.5/-57.7 dB, avg gap 19.6 dB | lip pick: ambiguous 50%, matched 35%, confirming switch 15% -> voice 1 | monitor original | voice lock: off
+23:57:41 INFO [dashboard] set_recording {"enabled": true}
+23:57:41 ERROR [test] stopped: separation failed: ValueError: negative dimensions are not allowed
+23:57:44 INFO [stream] 5 s: 250 blocks, max arrival gap 80 ms, 0 gaps > 100 ms, in -45.4 dB, out -52.2 dB, played -36.1 dB (auto volume +16.0 dB), video: 8.8 fps, face found 100%
+23:57:49 INFO [stream] 5 s: 250 blocks, max arrival gap 101 ms, 1 gaps > 100 ms, in -43.4 dB, out -51.8 dB, played -35.6 dB (auto volume +16.2 dB), video: 8.8 fps, face found 100%
+23:57:51 INFO [dashboard] set_test_mode {"enabled": true, "model": "auto", "window_s": 2, "hop_s": 0.25, "identity": false}
+23:57:51 INFO [test] separating: window 2.0 s, hop 0.25 s, delay 750 ms, input 48000 Hz, model 16000 Hz
+23:57:54 INFO [stream] 5 s: 250 blocks, max arrival gap 141 ms, 1 gaps > 100 ms, in -36.0 dB, out -38.2 dB, played -18.6 dB (auto volume +19.5 dB), video: 9.0 fps, face found 100%
+23:57:54 INFO [test] sepformer-whamr16k on NVIDIA RTX A3000 Laptop GPU | window 2.0 s, hop 0.25 s, delay 750 ms | model 145/321 ms (median/p95) | hops 7, dropped late 0 (10 s), playback gaps 0 | voices -55.0/-52.3 dB, avg gap 15.0 dB | lip pick: matched 39%, ambiguous 39%, confirming switch 21% -> voice 1 | monitor original | voice lock: off
+23:57:59 INFO [stream] 5 s: 250 blocks, max arrival gap 63 ms, 0 gaps > 100 ms, in -32.7 dB, out -32.8 dB, played -21.2 dB (auto volume +11.6 dB), video: 9.0 fps, face found 100%
+23:57:59 INFO [test] sepformer-whamr16k on NVIDIA RTX A3000 Laptop GPU | window 2.0 s, hop 0.25 s, delay 750 ms | model 144/147 ms (median/p95) | hops 27, dropped late 0 (10 s), playback gaps 0 | voices -38.3/-37.4 dB, avg gap 12.8 dB | lip pick: matched 55%, ambiguous 30%, confirming switch 15% -> voice 2 | monitor original | voice lock: off
+23:58:04 INFO [stream] 5 s: 250 blocks, max arrival gap 70 ms, 0 gaps > 100 ms, in -36.7 dB, out -37.7 dB, played -26.6 dB (auto volume +11.1 dB), video: 9.6 fps, face found 100%
+23:58:04 INFO [test] sepformer-whamr16k on NVIDIA RTX A3000 Laptop GPU | window 2.0 s, hop 0.25 s, delay 750 ms | model 144/146 ms (median/p95) | hops 47, dropped late 0 (10 s), playback gaps 0 | voices -44.6/-62.5 dB, avg gap 10.3 dB | lip pick: matched 40%, confirming switch 30%, ambiguous 30% -> voice 1 | monitor original | voice lock: off
+23:58:09 INFO [stream] 5 s: 250 blocks, max arrival gap 370 ms, 4 gaps > 100 ms, in -37.9 dB, out -40.9 dB, played -27.9 dB (auto volume +13.0 dB), video: 8.0 fps, face found 100%
+23:58:09 INFO [test] sepformer-whamr16k on NVIDIA RTX A3000 Laptop GPU | window 2.0 s, hop 0.25 s, delay 750 ms | model 144/148 ms (median/p95) | hops 67, dropped late 0 (10 s), playback gaps 0 | voices -44.5/-34.5 dB, avg gap 7.8 dB | lip pick: ambiguous 65%, matched 30%, confirming switch 5% -> voice 2 | monitor original | voice lock: off
+23:58:14 INFO [stream] 5 s: 250 blocks, max arrival gap 84 ms, 0 gaps > 100 ms, in -34.5 dB, out -35.2 dB, played -21.3 dB (auto volume +13.9 dB), video: 8.6 fps, face found 100%
+23:58:14 INFO [test] sepformer-whamr16k on NVIDIA RTX A3000 Laptop GPU | window 2.0 s, hop 0.25 s, delay 750 ms | model 145/148 ms (median/p95) | hops 87, dropped late 0 (10 s), playback gaps 0 | voices -42.9/-35.1 dB, avg gap 6.5 dB | lip pick: ambiguous 55%, confirming switch 25%, matched 20% -> voice 1 | monitor original | voice lock: off
+23:58:19 INFO [stream] 5 s: 250 blocks, max arrival gap 52 ms, 0 gaps > 100 ms, in -41.9 dB, out -45.0 dB, played -30.7 dB (auto volume +14.4 dB), video: 9.4 fps, face found 100%
+23:58:19 INFO [test] sepformer-whamr16k on NVIDIA RTX A3000 Laptop GPU | window 2.0 s, hop 0.25 s, delay 750 ms | model 145/148 ms (median/p95) | hops 107, dropped late 0 (10 s), playback gaps 0 | voices -43.6/-43.3 dB, avg gap 8.7 dB | lip pick: ambiguous 45%, confirming switch 30%, matched 25% -> voice 1 | monitor original | voice lock: off
+23:58:24 INFO [stream] 5 s: 250 blocks, max arrival gap 76 ms, 0 gaps > 100 ms, in -39.1 dB, out -54.4 dB, played -42.3 dB (auto volume +12.1 dB), video: 9.0 fps, face found 100%
+23:58:24 INFO [test] sepformer-whamr16k on NVIDIA RTX A3000 Laptop GPU | window 2.0 s, hop 0.25 s, delay 750 ms | model 145/148 ms (median/p95) | hops 127, dropped late 0 (10 s), playback gaps 0 | voices -44.7/-49.6 dB, avg gap 12.0 dB | lip pick: matched 60%, ambiguous 40% -> voice 2 | monitor original | voice lock: off
+23:58:29 INFO [stream] 5 s: 250 blocks, max arrival gap 57 ms, 0 gaps > 100 ms, in -33.9 dB, out -34.4 dB, played -23.6 dB (auto volume +10.8 dB), video: 9.0 fps, face found 100%
+23:58:29 INFO [test] sepformer-whamr16k on NVIDIA RTX A3000 Laptop GPU | window 2.0 s, hop 0.25 s, delay 750 ms | model 145/148 ms (median/p95) | hops 147, dropped late 0 (10 s), playback gaps 0 | voices -46.6/-39.2 dB, avg gap 11.8 dB | lip pick: matched 45%, confirming switch 30%, ambiguous 25% -> voice 1 | monitor original | voice lock: off
+23:58:34 INFO [stream] 5 s: 250 blocks, max arrival gap 73 ms, 0 gaps > 100 ms, in -43.7 dB, out -45.6 dB, played -31.8 dB (auto volume +13.7 dB), video: 9.0 fps, face found 100%
+23:58:34 INFO [test] sepformer-whamr16k on NVIDIA RTX A3000 Laptop GPU | window 2.0 s, hop 0.25 s, delay 750 ms | model 146/147 ms (median/p95) | hops 167, dropped late 0 (10 s), playback gaps 0 | voices -44.6/-47.6 dB, avg gap 10.5 dB | lip pick: ambiguous 55%, matched 30%, confirming switch 15% -> voice 1 | monitor original | voice lock: off
+23:58:36 INFO [test] saved 44.5 s recording to C:\Users\octto\Documents\Code\Group Project\LipSync\recordings\live-test-20261121-235835
+23:58:36 INFO [dashboard] set_recording {"enabled": false}
+23:58:39 INFO [stream] 5 s: 250 blocks, max arrival gap 91 ms, 0 gaps > 100 ms, in -41.5 dB, out -51.1 dB, played -47.9 dB (auto volume +3.2 dB), video: 8.8 fps, face found 100%
+23:58:39 INFO [test] sepformer-whamr16k on NVIDIA RTX A3000 Laptop GPU | window 2.0 s, hop 0.25 s, delay 750 ms | model 146/148 ms (median/p95) | hops 187, dropped late 0 (10 s), playback gaps 0 | voices -98.6/-73.6 dB, avg gap 10.1 dB | lip pick: ambiguous 50%, matched 25%, confirming switch 25% -> voice 2 | monitor original | voice lock: off
+23:58:44 INFO [stream] 5 s: 250 blocks, max arrival gap 61 ms, 0 gaps > 100 ms, in -46.3 dB, out -50.5 dB, played -46.3 dB (auto volume +4.2 dB), video: 8.6 fps, face found 100%
+23:58:44 INFO [test] sepformer-whamr16k on NVIDIA RTX A3000 Laptop GPU | window 2.0 s, hop 0.25 s, delay 750 ms | model 145/148 ms (median/p95) | hops 207, dropped late 0 (10 s), playback gaps 0 | voices -99.9/-61.5 dB, avg gap 19.3 dB | lip pick: ambiguous 65%, matched 20%, confirming switch 15% -> voice 1 | monitor original | voice lock: off
+23:58:48 INFO [phone] capture ended
