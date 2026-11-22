@@ -151,6 +151,7 @@ def process_frame(landmarker, frame, timestamp_ms, choose=None):
             "face_found": True,
             "openness": float(openness),
             "mouth_box": [int(x), int(y), int(bw), int(bh)],
+            "face_box": [int(min(xs)), int(min(ys)), int(max(xs)), int(max(ys))],
             "faces": len(faces),
         }
 

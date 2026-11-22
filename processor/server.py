@@ -203,6 +203,7 @@ class FrameProcessor:
         if max(frame.shape[:2]) > 1920:
             raise ValueError("frame exceeds 1920 pixels")
         info = {"face_found": False, "openness": 0, "mouth_box": None}
+        clean = frame.copy()  # process_frame draws on the frame; the speaking detector needs it clean
         if self.warning is None:
             try:
                 from test2 import create_landmarker, process_frame
@@ -217,6 +218,9 @@ class FrameProcessor:
                 debug.log("error", "vision", self.warning)
         if self.warning:
             info["warning"] = self.warning
+        if info.get("face_found") and info.get("face_box"):
+            from processor.active_speaker import face_crop
+            info["_face"] = face_crop(clean, info["face_box"])  # 112x112 grey, removed before publishing
         ok, encoded = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
         if not ok:
             raise ValueError("could not encode JPEG")
@@ -326,9 +330,10 @@ async def capture(sock: WebSocket):
             try:
                 began = time.perf_counter()
                 encoded, info = await run_in_threadpool(processor.process, jpeg, message["capture_time_us"])
+                face = info.pop("_face", None)
                 frame_ms = (time.perf_counter() - began) * 1000
                 if hub.session is session:
-                    test_mode.add_mouth(message["capture_time_us"], info)
+                    test_mode.add_mouth(message["capture_time_us"], info, face)
                     video_stats.frame(info, frame_ms)
                     hub.publish({**message, "jpeg_base64": base64.b64encode(encoded).decode(), "info": info})
                     outbox.put({"type": "video_ack", "seq": message["seq"], "session_id": session.id})
@@ -416,6 +421,7 @@ async def browser_debug(sock: WebSocket):
             jpeg = await sock.receive_bytes()
             try:
                 out, info = await run_in_threadpool(processor.process, jpeg, time.monotonic_ns() // 1000)
+                info.pop("_face", None)
                 await sock.send_json(info)
                 await sock.send_bytes(out)
             except ValueError as exc:

@@ -29,7 +29,11 @@ def _number(message, key, low, high):
 
 class TestMode:
     def __init__(self, loader=None, on_change=None, recordings_dir=ROOT / "recordings", log=None,
-                 embedder_loader=None):
+                 embedder_loader=None, face_loader="auto"):
+        if face_loader == "auto":  # the real detector goes with the real separator (tests pass fakes)
+            face_loader = _load_face_model if loader is None else None
+        self.face_loader, self.face_model = face_loader, None
+        self.picker_kind = "face"  # "face": pretrained speaking detector; "lips": mouth-openness rule
         if loader is None:
             from processor.separation_models import load as loader
         self.loader, self.on_change, self.recordings_dir = loader, on_change, Path(recordings_dir)
@@ -65,6 +69,12 @@ class TestMode:
                 from processor.separation_models import MODELS
                 if model != "auto" and model not in MODELS:
                     raise ValueError(f"model must be auto or one of {sorted(MODELS)}")
+                picker = message.get("picker", self.picker_kind)
+                if picker not in ("face", "lips"):
+                    raise ValueError("picker must be face (speaking detector) or lips")
+                if picker != self.picker_kind:
+                    self.picker_kind = picker
+                    self.version += 1  # rebuild with the other picker
                 identity = message.get("identity", self.identity)
                 if not isinstance(identity, bool):
                     raise ValueError("identity must be boolean")
@@ -135,6 +145,7 @@ class TestMode:
                     where = info.get("gpu") or info.get("device")
                     self.log("info", "test", f"loaded {info.get('model')} on {where} in {time.perf_counter() - began:.1f} s")
                     embed = self._load_embedder(info)
+                    face_model = self._load_face(info)
                 except Exception as exc:
                     separate, info, error = None, None, f"Model failed to load: {exc}"
                     self.log("error", "test", error)
@@ -146,6 +157,7 @@ class TestMode:
                     else:
                         self.separate, self.info, self.loaded_model = separate, info, model
                         self.embed = embed
+                        self.face_model = face_model
                         self.state = "ready" if self.enabled else "off"
                         self.version += 1
                     break
@@ -154,6 +166,31 @@ class TestMode:
 
         self.loading = threading.Thread(target=run, name="separator-loader", daemon=True)
         self.loading.start()
+
+    def _load_face(self, info):
+        """Light-ASD speaking detector, on the separator's device. None: use the lip rule."""
+        if self.face_loader is None:
+            return self.face_model
+        if self.face_model is not None and getattr(self.face_model, "device", None) == info.get("device", "cpu"):
+            return self.face_model
+        real = self.face_loader is _load_face_model
+        if real and info.get("device") != "cuda" and os.environ.get("LIPSYNC_FACE_CPU") != "1":
+            # About 0.7 s per 2 s window on a laptop CPU: too slow for every 0.25 s hop.
+            self.log("info", "test", "face picker needs the GPU (set LIPSYNC_FACE_CPU=1 to force); using the lip rule")
+            return None
+        try:
+            model = self.face_loader(info.get("device", "cpu"))
+            self.log("info", "test", "face picker ready (Light-ASD speaking detector, TalkSet weights)")
+            return model
+        except Exception as exc:
+            self.log("warn", "test", f"face picker unavailable, using the lip rule: {exc}")
+            return None
+
+    def _new_picker(self):
+        if self.picker_kind == "face" and self.face_model is not None:
+            from processor.active_speaker import TalkingFacePicker
+            return TalkingFacePicker(self.face_model, offset_ms=self.lip_offset_ms)
+        return LipPicker(offset_ms=self.lip_offset_ms)
 
     def _load_embedder(self, info):
         """Voice lock model; GPU only by default (about 190 ms per voice on a laptop CPU)."""
@@ -179,7 +216,7 @@ class TestMode:
         with self.lock:
             self._close_separator()
             self.session = {"id": session_id, "rate": rate, "anchor_us": None}
-            self.picker = LipPicker(offset_ms=self.lip_offset_ms)
+            self.picker = self._new_picker()
             self.version += 1
 
     def detach(self, session_id):
@@ -193,8 +230,12 @@ class TestMode:
                 if self.state == "running":
                     self.state = "ready"
 
-    def add_mouth(self, capture_us, info):
-        self.picker.add(capture_us, float(info["openness"]) if info.get("face_found") else None)
+    def add_mouth(self, capture_us, info, face=None):
+        """Every processed video frame: mouth openness, and the target face crop (or None)."""
+        picker = self.picker
+        picker.add(capture_us, float(info["openness"]) if info.get("face_found") else None)
+        if hasattr(picker, "add_face"):
+            picker.add_face(capture_us, face if info.get("face_found") else None)
 
     def feed(self, pcm, first_sample, capture_us):
         """Called for every phone block (already filtered). Never raises."""
@@ -234,6 +275,9 @@ class TestMode:
         every pick "face not visible" when test mode started after connecting)."""
         self._close_separator()
         session = self.session
+        wants_face = self.picker_kind == "face" and self.face_model is not None
+        if wants_face != hasattr(self.picker, "add_face"):
+            self.picker = self._new_picker()
         self.picker.choice, self.picker.reason = -1, "waiting for face"
         self.separator = StreamingSeparator(
             session["rate"], self.separate, window_s=self.window_s, hop_s=self.hop_s,
@@ -318,10 +362,17 @@ class TestMode:
                 f"hop {live['hop_s']} s, delay {live['delay_ms']} ms | model {fmt(live['infer_ms'])}/"
                 f"{fmt(live['infer_p95_ms'])} ms (median/p95) | hops {live['hops']}, dropped late {live['recent_drops']} "
                 f"(10 s), playback gaps {live['underruns']} | voices {live['voice_db'][0]}/{live['voice_db'][1]} dB, "
-                f"avg gap {live['voice_gap_db']} dB | lip pick: {picks} -> {target} (evidence "
+                f"avg gap {live['voice_gap_db']} dB | {self._picker_text(picker)}: {picks} -> {target} (evidence "
                 f"{live['lip_evidence']:+.2f}, {live['pick_switches']} switches) | monitor {self.monitor}"
                 f" ({self.focus_style}, target share {live['target_share']})"
                 f" | voice lock: {self._lock_text(live)}")
+
+    @staticmethod
+    def _picker_text(picker):
+        times = sorted(getattr(picker, "ms", []))
+        if not hasattr(picker, "add_face"):
+            return "lip pick"
+        return f"face pick ({times[len(times) // 2]:.0f} ms)" if times else "face pick"
 
     @staticmethod
     def _lock_text(live):
@@ -340,5 +391,11 @@ class TestMode:
                     "focus_style": self.focus_style,
                     "lip_offset_ms": self.lip_offset_ms, "recording": self.record,
                     "identity": self.identity, "identity_ready": self.embed is not None,
+                    "picker": self.picker_kind, "picker_ready": self.face_model is not None,
                     "last_recording": self.last_recording,
                     "live": self.separator.status() if self.separator else None}
+
+
+def _load_face_model(device):
+    from processor.active_speaker import ActiveSpeaker
+    return ActiveSpeaker("talkset", device=device)
