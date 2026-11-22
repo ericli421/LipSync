@@ -85,6 +85,10 @@ def create_landmarker():
         base_options=BaseOptions(model_asset_path=MODEL_PATH),
         running_mode=RunningMode.VIDEO,
         num_faces=MAX_FACES,
+        # Defaults (0.5) missed most frames of real phone video in the first tests.
+        min_face_detection_confidence=0.3,
+        min_face_presence_confidence=0.3,
+        min_tracking_confidence=0.3,
     )
     return FaceLandmarker.create_from_options(options)
 

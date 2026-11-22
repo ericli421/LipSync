@@ -6,6 +6,8 @@ import threading
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
+import os
+os.environ.setdefault("LIPSYNC_LOG_FILE", "off")  # keep the session log clean
 from processor.bridge import Hub, MODE, Outbox, Session
 from processor.server import app, hub
 
@@ -140,15 +142,18 @@ class SocketTests(unittest.TestCase):
             self.assertFalse(viewer.receive_json()["layers"]["voice_band"])
             viewer.send_json({"type": "set_layer", "layer": "warp_drive", "enabled": True})
             self.assertEqual(viewer.receive_json()["type"], "control_error")
+            viewer.send_json({"type": "set_layer", "layer": "auto_volume", "enabled": False})
+            self.assertFalse(viewer.receive_json()["layers"]["auto_volume"])
             try:
                 with client.websocket_connect("/ws/capture") as phone:
                     phone.send_json(hello())
                     session = receive(phone)["session_id"]
                     message = audio(session)
                     phone.send_json(message)
-                    self.assertEqual(receive(phone), message)  # layer off: raw bytes
+                    self.assertEqual(receive(phone), message)  # all layers off: raw bytes
             finally:
-                hub.settings.update({"type": "set_layer", "layer": "voice_band", "enabled": True})
+                for layer in ("voice_band", "auto_volume"):
+                    hub.settings.update({"type": "set_layer", "layer": layer, "enabled": True})
 
     def test_phone_controls_test_mode_and_reads_debug_log(self):
         from processor.server import test_mode

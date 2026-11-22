@@ -3,6 +3,8 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
+import os
+os.environ.setdefault("LIPSYNC_LOG_FILE", "off")  # keep the session log clean
 from processor import server
 
 

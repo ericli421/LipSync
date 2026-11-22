@@ -106,7 +106,7 @@ export function SeparationTestPanel({
       model: test.model,
       window_s: test.window_s,
       hop_s: test.hop_s,
-      identity: test.identity ?? true,
+      identity: test.identity ?? false,
       ...changes,
     });
   const select = "rounded-md border bg-background px-2 py-1";
@@ -136,14 +136,14 @@ export function SeparationTestPanel({
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <Button
           size="sm"
-          variant={(test.identity ?? true) ? "default" : "outline"}
+          variant={(test.identity ?? false) ? "default" : "outline"}
           aria-pressed={test.identity ?? true}
-          onClick={() => configure({ identity: !(test.identity ?? true) })}
+          onClick={() => configure({ identity: !(test.identity ?? false) })}
         >
-          Voice lock · {(test.identity ?? true) ? "On" : "Off"}
+          Voice lock · {(test.identity ?? false) ? "On" : "Off"}
         </Button>
         <span className="text-muted-foreground">
-          {!(test.identity ?? true)
+          {!(test.identity ?? false)
             ? "Voices can swap after a pause."
             : test.identity_ready
               ? `Speaker voiceprints keep each person in one voice${

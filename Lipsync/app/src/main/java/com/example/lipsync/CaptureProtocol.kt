@@ -26,9 +26,12 @@ object CaptureProtocol {
 
     /** Start/stop the laptop's live separation test (same control the dashboard sends). */
     fun testMode(enabled: Boolean, model: String = "auto", windowS: Double = 2.0, hopS: Double = 0.25,
-                 identity: Boolean = true) = JSONObject()
+                 identity: Boolean = false) = JSONObject()
         .put("type", "set_test_mode").put("enabled", enabled).put("model", model)
         .put("window_s", windowS).put("hop_s", hopS).put("identity", identity)
+
+    /** Turn a laptop audio layer on or off: voice_band or auto_volume. */
+    fun layer(name: String, enabled: Boolean) = JSONObject().put("type", "set_layer").put("layer", name).put("enabled", enabled)
 
     /** What the laptop sends back for monitoring: original, voice1, voice2 or focus. */
     fun monitorSource(source: String) = JSONObject().put("type", "set_monitor").put("source", source)
@@ -58,7 +61,9 @@ data class TestStatus(
     val voiceGapDb: Double? = null,
     val modelRate: Int? = null,
     val maxArrivalGapMs: Int? = null,
-    val identity: Boolean = true,
+    val identity: Boolean = false,
+    val autoVolume: Boolean = true,
+    val volumeGainDb: Double? = null,
     val identityReady: Boolean = false,
     val identityDecision: String? = null,
     val identityCorrections: Int = 0,
@@ -78,7 +83,10 @@ object PipelineStatus {
                 LogLine(it.optLong("seq"), it.optString("time"), it.optString("level"), it.optString("source"), it.optString("message"))
             }
         } ?: emptyList()
-        val test = message.optJSONObject("test") ?: return TestStatus() to log
+        val layers = message.optJSONObject("layers")
+        val autoVolume = layers?.optBoolean("auto_volume", true) ?: true
+        val volumeGain = message.double("volume_gain_db")
+        val test = message.optJSONObject("test") ?: return TestStatus(autoVolume = autoVolume, volumeGainDb = volumeGain) to log
         val network = message.optJSONObject("network")
         val lock = test.optJSONObject("live")?.optJSONObject("identity")
         val info = test.optJSONObject("info")
@@ -100,7 +108,8 @@ object PipelineStatus {
             voiceGapDb = live?.double("voice_gap_db"),
             modelRate = live?.takeIf { it.has("model_rate") }?.getInt("model_rate"),
             maxArrivalGapMs = network?.takeIf { it.has("max_gap_ms") }?.getInt("max_gap_ms"),
-            identity = test.optBoolean("identity", true),
+            identity = test.optBoolean("identity", false),
+            autoVolume = autoVolume, volumeGainDb = volumeGain,
             identityReady = test.optBoolean("identity_ready"),
             identityDecision = lock?.text("decision"),
             identityCorrections = lock?.optInt("identity_swaps") ?: 0,

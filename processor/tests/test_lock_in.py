@@ -74,28 +74,35 @@ class LockInTests(unittest.TestCase):
         self.assertGreater(tone_db(a_turn, 300), tone_db(a_turn, 700) + 20)  # A in voice 1 ...
         self.assertGreater(tone_db(b_turn, 700), tone_db(b_turn, 300) + 20)  # ... then B in voice 1
 
-    def test_voice_lock_keeps_each_person_in_their_own_stream(self):
+    def test_voice_lock_never_breaks_confident_stitching(self):
+        """Overruling stitching mid-speech mixed people into each voice in the live test."""
         tracker = IdentityTracker(tone_embed)
         voice1, voice2, segment, separator = stream(identity=tracker)
-        for lo, hi in ((0.5, 2.0), (10.5, 12.0)):  # A before and after two pauses
+        for lo, hi in ((0.5, 2.0), (10.5, 12.0)):  # A stays in Voice 1
             part1, part2 = segment(voice1, lo, hi), segment(voice2, lo, hi)
             self.assertGreater(tone_db(part1, 300), tone_db(part2, 300) + 20, (lo, hi))
-        # B starts in Voice 1 (stitching is confident), and is moved to Voice 2 within ~1 s.
-        part1, part2 = segment(voice1, 6.0, 7.4), segment(voice2, 6.0, 7.4)
-        self.assertGreater(tone_db(part2, 700), tone_db(part1, 700) + 20)
-        self.assertGreaterEqual(tracker.swaps, 1)
+        self.assertEqual(tracker.swaps, 0)
         self.assertIsNotNone(separator.status()["identity"])
 
-    def test_confident_stitching_needs_repeated_strong_evidence(self):
+    def test_confident_stitching_is_never_overridden_but_pauses_are_fixed(self):
         tracker = IdentityTracker(tone_embed)
         t = np.arange(2 * MODEL) / MODEL
-        both = np.column_stack([np.sin(2 * np.pi * 300 * t), np.sin(2 * np.pi * 700 * t)]) * 0.3
+        both = np.column_stack([np.sin(2 * np.pi * 300 * t), np.sin(2 * np.pi * 700 * 1.0 * t)]) * 0.3
+        both[:, 1] *= 0.6 + 0.4 * np.sin(2 * np.pi * 3 * t)  # independent loudness: not leakage
         tracker.assign(both, MODEL, 0.0)  # learns both voiceprints
-        self.assertFalse(tracker.assign(both.copy(), MODEL, 1.5)[1])
+        for _ in range(3):  # confident stitching: never swapped, however strong the evidence
+            self.assertFalse(tracker.assign(both[:, ::-1].copy(), MODEL, 1.5)[1])
         self.assertIn("stitching confident", tracker.status()["decision"])
-        self.assertFalse(tracker.assign(both[:, ::-1].copy(), MODEL, 1.5)[1])  # one disagreement: wait
-        self.assertIn("disagrees 1/2", tracker.status()["decision"])
-        self.assertTrue(tracker.assign(both[:, ::-1].copy(), MODEL, 1.5)[1])   # repeated: correct it
+        self.assertTrue(tracker.assign(both[:, ::-1].copy(), MODEL, 0.1)[1])  # after a pause: fixed
+
+    def test_leakage_of_the_same_talker_is_not_a_second_voice(self):
+        tracker = IdentityTracker(tone_embed)
+        t = np.arange(2 * MODEL) / MODEL
+        voice = 0.3 * np.sin(2 * np.pi * 300 * t) * (0.6 + 0.4 * np.sin(2 * np.pi * 3 * t))
+        est = np.column_stack([voice, 0.5 * voice])  # -6 dB copy that follows the talker
+        speech = tracker._active_audio(est, MODEL)
+        self.assertIsNotNone(speech[0])
+        self.assertIsNone(speech[1])
 
 
 class LipTimingTests(unittest.TestCase):

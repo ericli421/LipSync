@@ -35,14 +35,15 @@ class TestMode:
         self.loader, self.on_change, self.recordings_dir = loader, on_change, Path(recordings_dir)
         self.log = log or (lambda *args, **kwargs: None)
         self.embedder_loader = embedder_loader
-        self.identity, self.embed = True, None  # "Voice lock": speaker voiceprints
+        self.identity, self.embed = False, None  # "Voice lock": speaker voiceprints (opt-in)
         self.reported_skips = 0
         self.last_counts = collections.Counter()
         self.lock = threading.RLock()
         self.enabled, self.model = False, "auto"
         self.window_s, self.hop_s = 2.0, 0.25  # 0.75 s delay; more context separates better
         self.monitor = "original"
-        self.focus_db, self.duck_db, self.lip_offset_ms = 3.0, -15.0, 0.0
+        # Boost the person on camera relative to everyone else; do not remove the rest.
+        self.focus_db, self.duck_db, self.lip_offset_ms = 6.0, -8.0, 0.0
         self.record = False
         self.state, self.error, self.info = "off", None, None
         self.separate, self.loaded_model, self.loading = None, None, None
@@ -101,8 +102,10 @@ class TestMode:
                 record = message.get("enabled")
                 if not isinstance(record, bool):
                     raise ValueError("enabled must be boolean")
-                if record and not self.record:
-                    self.version += 1  # rebuild with a recording buffer
+                if record and not self.record and self.separator is not None:
+                    self.separator.start_recording(RECORD_SECONDS)  # keep stitching and voiceprints
+                elif record and not self.record:
+                    self.version += 1
                 if not record and self.record:
                     self._save_recording()
                 self.record = record

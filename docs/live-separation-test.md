@@ -98,29 +98,32 @@ on first use (pinned revisions, SHA-256 verified) into the Hugging Face cache.
    share of time each voice was picked) for offline scoring.
    Recordings are git-ignored: to share them, `git add -f recordings/live-test-*`.
 
-## Keeping each person in one voice (Voice lock)
+## Loudness and Focus
 
-Stitching chunks only works while a voice is present in the overlap. After a
-pause a separator often puts whoever talks into its first output, so Voice 1
-switched person mid-recording. **Voice lock** (on by default, GPU only) keeps a
-speaker voiceprint per voice (pinned SpeechBrain ECAPA-TDNN, VoxCeleb) and:
+The phone records with Android's UNPROCESSED source (no gain): speech arrived
+around -35 to -45 dBFS in the first tests and every stage only lowered it.
+**Auto volume** (on by default, last stage for every monitor) raises speech
+toward -20 dBFS (up to +30 dB), holds its gain in pauses so room noise is not
+pumped up, and limits peaks below clipping. Measured on speech-like bursts:
+-40 dB in -> -21 dB out (+23 dB), -30 -> -15 dB, -10 -> -15 dB. Toggle it in the
+phone's Audio card or the dashboard.
 
-- judges a chunk only when a voice is active for at least 0.5 s, using its active
-  frames only;
-- after a pause (stitching unsure) reorders the chunk on a clear voiceprint match;
-- while stitching is confident, corrects it only on strong disagreement for two
-  chunks in a row, or one once both voiceprints are trained;
-- learns a voiceprint only from audio that matches it clearly better than the
-  other, so the two never blend.
+Focus does not try to remove the other person: it boosts the voice matched to
+the face on camera by +6 dB and lowers everything else by 8 dB (sliders).
 
-Measured with two real VoxCeleb voices taking turns with 2.5 s pauses and a
-"loudest talker first" separator: without voice lock every turn landed in Voice 1;
-with it A stayed 100% in Voice 1 and B landed 70–74% in Voice 2 (the first ~0.5 s
-of a returning voice can still play in the wrong stream). With 0.8 s pauses
-stitching alone was already correct and voice lock changed nothing. This is a
-synthetic check, not a measurement on your recordings. On an i7-1260P CPU one
-voiceprint takes about 190 ms, so it is disabled without a GPU unless
-`LIPSYNC_IDENTITY_CPU=1`.
+## Voice lock (experimental, off by default)
+
+Voice lock keeps a speaker voiceprint per voice (pinned SpeechBrain ECAPA-TDNN)
+to keep Voice 1 and Voice 2 on the same people after a pause. In the first live
+test it could also overrule chunk stitching mid-speech, and it made 3 changes in
+10 s while both people talked; separated room speech scores lower on voiceprints
+than clean clips, so it is now **off by default** and **never overrules confident
+stitching**. It acts only after a pause, judges a voice only with at least 0.5 s
+of speech within 10 dB of the loudest output, ignores a quieter output whose
+loudness just follows the louder one (leakage of the same person), and learns a
+voiceprint only from clear matches. Focus does not need it: the lip pick chooses
+the on-camera voice every window. Compare it on and off on the same recording
+before relying on it.
 
 Focus also locks in: once a face is matched, the other voice must win four lip
 windows in a row (about 1 s) before Focus switches. Lip frames are now located

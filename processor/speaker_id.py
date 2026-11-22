@@ -68,10 +68,11 @@ def load_embedder(device):
 
 class IdentityTracker:
     """Decide per chunk whether the two outputs should be swapped to keep identities."""
-    def __init__(self, embed, frame_s=0.02, active_ratio=0.1, floor_rms=1e-4, min_active_s=0.5,
+    def __init__(self, embed, frame_s=0.02, active_ratio=0.316, floor_rms=1e-4, min_active_s=0.5, leak_corr=0.8,
                  margin_pair=0.2, margin_single=0.15, strong=0.3, confirm=2, new_speaker=0.2,
                  known=0.35, confident_stitch=0.5, learn=0.1, learn_margin=0.1, clear=0.4, trained=4):
         self.embed = embed
+        self.leak_corr = leak_corr  # a quieter output whose loudness follows the louder one is leakage
         self.frame_s, self.active_ratio, self.floor_rms, self.min_active_s = frame_s, active_ratio, floor_rms, min_active_s
         self.margin_pair, self.margin_single, self.strong, self.confirm = margin_pair, margin_single, strong, confirm
         self.new_speaker, self.known, self.confident_stitch = new_speaker, known, confident_stitch
@@ -90,9 +91,15 @@ class IdentityTracker:
         if not frames:
             return [None, None]
         energy = np.sqrt(np.mean(est[: frames * hop].reshape(frames, hop, 2) ** 2, axis=1))
+        # A voice counts only within 10 dB of the loudest frame of either output.
         threshold = np.maximum(self.floor_rms, self.active_ratio * energy.max())
+        louder = int(np.argmax(energy.sum(axis=0)))
+        follows = np.corrcoef(np.log(energy[:, 0] + 1e-9), np.log(energy[:, 1] + 1e-9))[0, 1]
         result = []
         for i in range(2):
+            if i != louder and np.isfinite(follows) and follows > self.leak_corr:
+                result.append(None)  # same person leaking into the other output, not a second talker
+                continue
             active = energy[:, i] > threshold
             if active.sum() * hop < self.min_active_s * rate:
                 result.append(None)
@@ -142,17 +149,11 @@ class IdentityTracker:
     def _decide(self, vectors, sim, stitch_confidence):
         score, label = self._evidence(vectors, sim)
         if stitch_confidence >= self.confident_stitch:
-            # Stitching is usually right; only a strong, repeated disagreement corrects it.
-            self.disagree = self.disagree + 1 if score is not None and score > self.strong else 0
-            both_trained = min(self.updates) >= self.trained and all(c is not None for c in self.centroids)
-            immediate = both_trained and label in ("pair", "single") and score > self.clear
-            if self.disagree >= self.confirm or (self.disagree and immediate):
-                self.last = {"decision": f"corrected stitching after {self.disagree} chunks: {label} ({score:+.2f})"}
-                return True
-            self.last = {"decision": "kept (stitching confident)" if not self.disagree
-                         else f"stitching disagrees {self.disagree}/{self.confirm}: {label}"}
+            # Never overrule confident stitching. Overruling it mid-sentence on separated,
+            # reverberant speech (lower voiceprint similarity than clean clips) mixed
+            # both people into each voice in the first voice-lock test.
+            self.last = {"decision": "kept (stitching confident)"}
             return False
-        self.disagree = 0
         if score is None:
             self.last = {"decision": f"kept ({label})"}
             return False

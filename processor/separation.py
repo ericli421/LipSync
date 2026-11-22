@@ -39,7 +39,10 @@ FPS = 25
 MONITORS = ("original", "voice1", "voice2", "focus")
 # Lock in: once a face is matched to a voice, the other voice must win 4 windows in
 # a row (about 1 s at a 0.25 s hop) before Focus switches person.
-LOCK_CONFIG = dataclasses.replace(MatchConfig(), switch_confirmation_windows=4)
+# The live face tracker misses frames (face found in 15-85% of frames in the first
+# phone tests), so a window is judged when half its frames have a face; gaps are
+# interpolated by filtered_signal.
+LOCK_CONFIG = dataclasses.replace(MatchConfig(), switch_confirmation_windows=4, min_valid_fraction=0.5)
 
 
 class Decimator:
@@ -116,7 +119,7 @@ class LipPicker:
         if len(times) > 1:
             left = nearest - 1
             nearest = np.where(np.abs(times[left] - grid) < np.abs(times[nearest] - grid), left, nearest)
-        close = np.abs(times[nearest] - grid) <= 80_000
+        close = np.abs(times[nearest] - grid) <= 120_000  # phone video arrives at ~10 fps
         out[close] = values[nearest][close]
         return out
 
@@ -174,7 +177,7 @@ class StreamingSeparator:
     """Feed input-rate float blocks; read delayed output blocks for a monitor."""
     def __init__(self, rate, separate, window_s=1.5, hop_s=0.25, lookahead_s=0.25,
                  crossfade_s=0.03, delay_s=None, picker=None, anchor_us=0,
-                 focus_db=3.0, duck_db=-15.0, record_seconds=0, model_rate=MODEL_RATE,
+                 focus_db=6.0, duck_db=-8.0, record_seconds=0, model_rate=MODEL_RATE,
                  identity=None):
         self.mr = model_rate
         if rate % self.mr:
@@ -358,14 +361,17 @@ class StreamingSeparator:
             self.picks = np.concatenate([self.picks, np.full(len(up), choice, dtype=np.int8)])
         self.emitted8 = e1
         if self.recording is not None and sum(map(len, self.recording["voice1"])) < self.record_limit:
+            offset = getattr(self, "record_offset", 0)  # model-rate index where the mix track starts
+            region_start = e0 - gap
             if not self.recording["voice1"]:
-                lead = np.zeros(max(0, e0 - gap))
+                lead = np.zeros(max(0, region_start - offset))
                 self.recording["voice1"].append(lead)
                 self.recording["voice2"].append(lead)
                 self.recording["focus_pick"].append(np.full(len(lead), -1))
-            self.recording["voice1"].append(region[:, 0])
-            self.recording["voice2"].append(region[:, 1])
-            self.recording["focus_pick"].append(np.full(len(region), choice))
+            trim = max(0, offset - region_start) if len(self.recording["voice1"]) == 1 else 0
+            self.recording["voice1"].append(region[trim:, 0])
+            self.recording["voice2"].append(region[trim:, 1])
+            self.recording["focus_pick"].append(np.full(len(region) - trim, choice))
 
     def _align(self, est, start):
         """Reorder/sign-correct candidates to match the previous chunk on the overlap."""
@@ -426,6 +432,13 @@ class StreamingSeparator:
         """Hops dropped as late in the last `seconds` (not since the start)."""
         cutoff = time.monotonic() - seconds
         return sum(1 for t in list(self.stats["late_drops"]) if t >= cutoff)
+
+    def start_recording(self, seconds):
+        """Begin recording from now on, without restarting separation."""
+        with self.lock:
+            self.record_limit = seconds * self.mr
+            self.record_offset = self.total8
+            self.recording = {"mix": [], "voice1": [], "voice2": [], "focus_pick": []}
 
     def take_recording(self):
         """Return {name: 8 kHz float array} aligned to the same start, then stop recording."""

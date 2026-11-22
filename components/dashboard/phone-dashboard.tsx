@@ -10,7 +10,8 @@ import {
 type Session = { session_id: string; device_name: string; sample_rate: number };
 type Info = { face_found: boolean; openness: number; warning?: string };
 type Pipeline = {
-  layers: { voice_band: boolean };
+  layers: { voice_band: boolean; auto_volume?: boolean };
+  volume_gain_db?: number;
   band: { low_hz: number; high_hz: number; effective_high_hz: number | null };
   in_db: number | null;
   out_db: number | null;
@@ -315,6 +316,23 @@ export function PhoneDashboard() {
             }
           >
             Voice band · {pipeline?.layers.voice_band ? "On" : "Off"}
+          </Button>
+          <Button
+            variant={pipeline?.layers.auto_volume ? "default" : "outline"}
+            aria-pressed={pipeline?.layers.auto_volume ?? false}
+            disabled={!pipeline}
+            onClick={() =>
+              control({
+                type: "set_layer",
+                layer: "auto_volume",
+                enabled: !pipeline?.layers.auto_volume,
+              })
+            }
+          >
+            Auto volume · {pipeline?.layers.auto_volume ? "On" : "Off"}
+            {pipeline?.layers.auto_volume && pipeline.volume_gain_db != null
+              ? ` (${pipeline.volume_gain_db > 0 ? "+" : ""}${pipeline.volume_gain_db.toFixed(0)} dB)`
+              : ""}
           </Button>
           <label className="flex items-center gap-2">
             <span className="text-muted-foreground">Band</span>

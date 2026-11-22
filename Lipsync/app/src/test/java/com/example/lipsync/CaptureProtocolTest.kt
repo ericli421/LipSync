@@ -27,8 +27,11 @@ class CaptureProtocolTest {
         assertEquals("sepformer-whamr16k", CaptureProtocol.testMode(true, "sepformer-whamr16k", 1.0, 0.5).getString("model"))
         assertEquals(0.25, start.getDouble("hop_s"), 0.0)
         assertEquals("focus", CaptureProtocol.monitorSource("focus").getString("source"))
-        assertTrue(start.getBoolean("identity"))
-        assertFalse(CaptureProtocol.testMode(true, identity = false).getBoolean("identity"))
+        assertFalse(start.getBoolean("identity"))
+        assertTrue(CaptureProtocol.testMode(true, identity = true).getBoolean("identity"))
+        val layer = CaptureProtocol.layer("auto_volume", false)
+        assertEquals("set_layer", layer.getString("type"))
+        assertFalse(layer.getBoolean("enabled"))
     }
     @Test fun parsesPipelineStatusWithNullsAndLog() {
         val idle = org.json.JSONObject("""{"type":"pipeline","test":{"enabled":false,"state":"off","error":null,
@@ -36,6 +39,7 @@ class CaptureProtocolTest {
             "log":[{"seq":3,"time":"20:01:02","level":"warn","source":"test","message":"model too slow"}]}""")
         val (test, log) = PipelineStatus.parse(idle)
         assertEquals("off", test.state)
+        assertTrue(test.autoVolume)
         assertNull(test.inferMs)
         assertNull(test.keepingUp)
         assertEquals("20:01:02 WARN [test] model too slow", log.single().text())

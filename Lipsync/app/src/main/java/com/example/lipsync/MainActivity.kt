@@ -84,7 +84,17 @@ class MainActivity : ComponentActivity() {
                                     Switch(checked = captureState.monitoring, onCheckedChange = { controller.monitor(it) }, enabled = captureState.active,
                                         modifier = Modifier.semantics { contentDescription = "Headphone monitor" })
                                 }
-                                Text("Use headphones to avoid feedback.", style = MaterialTheme.typography.bodySmall)
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Column(Modifier.weight(1f).padding(top = 4.dp)) {
+                        Text("Auto volume")
+                        Text(captureState.test.volumeGainDb?.let { "Raises quiet speech: %+.0f dB now".format(it) }
+                            ?: "Raises quiet speech to a comfortable level", style = MaterialTheme.typography.bodySmall)
+                    }
+                    Switch(checked = captureState.test.autoVolume, enabled = captureState.connected,
+                        onCheckedChange = { controller.control(CaptureProtocol.layer("auto_volume", it)) },
+                        modifier = Modifier.semantics { contentDescription = "Auto volume" })
+                }
+                Text("Use headphones to avoid feedback.", style = MaterialTheme.typography.bodySmall)
                             }
                         }
                         SeparationTestCard(captureState, controller)

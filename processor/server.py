@@ -37,8 +37,8 @@ def configure_logging():
     console = logging.StreamHandler()
     console.setFormatter(formatter)
     logger.addHandler(console)
-    if "unittest" in sys.modules and os.environ.get("LIPSYNC_LOG_FILE") != "on":
-        logger._lipsync_configured = True  # tests must not write into the shared session log
+    if os.environ.get("LIPSYNC_LOG_FILE") == "off":  # set by the unit tests
+        logger._lipsync_configured = True
         return
     try:
         LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -129,6 +129,14 @@ def apply_control(message, source):
 
 test_mode = TestMode(on_change=notify_viewers, log=debug.log)
 
+def played_text(chain):
+    """What reached the headphones, if the chain reports it (stand-in chains may not)."""
+    volume = getattr(chain, "volume", None)
+    if volume is None:
+        return ""
+    return f"played {chain.final_db} dB (auto volume {volume.gain_db:+.1f} dB), "
+
+
 def report_audio_progress(seq, session_id, chain):
     """Fast UI meters are independent of the slower diagnostic log summaries."""
     if seq % 5 == 0:  # viewers every 100 ms, phone every 500 ms
@@ -138,6 +146,7 @@ def report_audio_progress(seq, session_id, chain):
         net = arrivals.status()
         debug.log("info", "stream", f"5 s: {net['blocks']} blocks, max arrival gap {net['max_gap_ms']} ms, "
                   f"{net['gaps_over_100ms']} gaps > 100 ms, in {chain.in_db} dB, out {chain.out_db} dB, "
+                  f"{played_text(chain)}"
                   f"{video_stats.text()}")
         video_stats.reset()
         line = test_mode.summary()
@@ -310,6 +319,10 @@ async def capture(sock: WebSocket):
                 except Exception as exc:
                     test_mode.error = f"Test mode output failed: {exc}"
                     debug.log("error", "test", test_mode.error, every_s=5)
+                try:  # last stage for every monitor: comfortable headphone level
+                    processed = chain.finish(processed)
+                except Exception as exc:
+                    debug.log("error", "audio", f"auto volume failed: {exc}", every_s=5)
                 hub.publish({**message, "pcm_base64": base64.b64encode(processed).decode()}, include_phone=True)
                 report_audio_progress(message["seq"], session.id, chain)
             elif not pending.full():
