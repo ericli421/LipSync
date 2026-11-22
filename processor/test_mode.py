@@ -41,7 +41,8 @@ class TestMode:
         self.lock = threading.RLock()
         self.enabled, self.model = False, "auto"
         self.window_s, self.hop_s = 2.0, 0.25  # 0.75 s delay; more context separates better
-        self.monitor = "original"
+        self.monitor = "focus"  # the person on camera, with everyone else lowered
+        self.focus_style = "mask"
         # Boost the person on camera relative to everyone else; do not remove the rest.
         self.focus_db, self.duck_db, self.lip_offset_ms = 6.0, -8.0, 0.0
         self.record = False
@@ -94,10 +95,15 @@ class TestMode:
                 self.duck_db = _number(message, "duck_db", -40, 0) if "duck_db" in message else self.duck_db
                 if "lip_offset_ms" in message:
                     self.lip_offset_ms = _number(message, "lip_offset_ms", -500, 500)
+                if "style" in message:
+                    if message["style"] not in ("mask", "mix"):
+                        raise ValueError("style must be mask (natural) or mix")
+                    self.focus_style = message["style"]
                 self.picker.offset_ms = self.lip_offset_ms
                 if self.separator:
                     self.separator.focus_gain = 10 ** (self.focus_db / 20)
                     self.separator.duck_gain = 10 ** (self.duck_db / 20)
+                    self.separator.focus_style = self.focus_style
             elif kind == "set_recording":
                 record = message.get("enabled")
                 if not isinstance(record, bool):
@@ -235,7 +241,8 @@ class TestMode:
             focus_db=self.focus_db, duck_db=self.duck_db,
             record_seconds=RECORD_SECONDS if self.record else 0,
             model_rate=int((self.info or {}).get("sample_rate", MODEL_RATE)),
-            identity=IdentityTracker(self.embed) if (self.identity and self.embed) else None)
+            identity=IdentityTracker(self.embed) if (self.identity and self.embed) else None,
+            focus_style=self.focus_style)
         self.built_version, self.state, self.error = self.version, "running", None
         self.reported_skips = 0
         self.last_counts = collections.Counter()
@@ -311,7 +318,9 @@ class TestMode:
                 f"hop {live['hop_s']} s, delay {live['delay_ms']} ms | model {fmt(live['infer_ms'])}/"
                 f"{fmt(live['infer_p95_ms'])} ms (median/p95) | hops {live['hops']}, dropped late {live['recent_drops']} "
                 f"(10 s), playback gaps {live['underruns']} | voices {live['voice_db'][0]}/{live['voice_db'][1]} dB, "
-                f"avg gap {live['voice_gap_db']} dB | lip pick: {picks} -> {target} | monitor {self.monitor}"
+                f"avg gap {live['voice_gap_db']} dB | lip pick: {picks} -> {target} (evidence "
+                f"{live['lip_evidence']:+.2f}, {live['pick_switches']} switches) | monitor {self.monitor}"
+                f" ({self.focus_style}, target share {live['target_share']})"
                 f" | voice lock: {self._lock_text(live)}")
 
     @staticmethod
@@ -328,6 +337,7 @@ class TestMode:
                     "model": self.model, "info": self.info,
                     "window_s": self.window_s, "hop_s": self.hop_s, "lookahead_s": LOOKAHEAD_S,
                     "monitor": self.monitor, "focus_db": self.focus_db, "duck_db": self.duck_db,
+                    "focus_style": self.focus_style,
                     "lip_offset_ms": self.lip_offset_ms, "recording": self.record,
                     "identity": self.identity, "identity_ready": self.embed is not None,
                     "last_recording": self.last_recording,

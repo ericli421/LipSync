@@ -86,6 +86,13 @@ def db(x):
 class LipPicker:
     """Choose the candidate whose envelope follows the on-camera mouth.
 
+    Evidence accumulates over about `EVIDENCE_TAU_S` seconds instead of deciding each
+    2 s window on its own (single windows flipped the pick every few seconds in the
+    first phone tests). Each window adds: the correlation difference between the two
+    voices at one common lip/audio lag (a per-voice lag inflated the wrong voice), or,
+    while the tracked lips are still, evidence against whichever voice is talking.
+    The pick changes only when the evidence clearly crosses to the other voice.
+
     Mouth samples are (capture_time_us, openness or None). Audio sample index i
     maps to time anchor_us + i / rate. `offset_ms` shifts video relative to audio
     because phone audio/video timestamps are not verified to be synchronized.
@@ -100,6 +107,14 @@ class LipPicker:
         self.scores = [None, None]
         self.reason = "waiting for face"
         self.counts = collections.Counter()  # pick outcomes, for the periodic log summary
+        self.evidence = 0.0                   # > 0 favours voice 2, < 0 favours voice 1
+        self.switches = 0
+        self.last_start_us = None
+
+    EVIDENCE_TAU_S = 3.0   # memory of the evidence
+    ENTER, SWITCH = 0.08, 0.15   # first pick, and changing an existing pick
+    STILL_WEIGHT = 0.5
+    MAX_LAG_S = 0.2
 
     def add(self, capture_us, openness):
         with self.lock:
@@ -133,44 +148,126 @@ class LipPicker:
         hop = rate // FPS
         frames = len(candidates) // hop
         cfg = self.config
+        dt = 0.25 if self.last_start_us is None else min(1.0, max(0.05, (window_start_us - self.last_start_us) / 1e6))
+        self.last_start_us = window_start_us
         mouth = self.trace(window_start_us, frames)
         valid = np.isfinite(mouth)
         if valid.mean() < cfg.min_valid_fraction:
             self.reason = "face not visible"
-            return self.choice
+            return self.choice  # no information: keep the evidence and the pick
+        raw = np.sqrt(np.mean(candidates[: frames * hop].reshape(frames, hop, 2) ** 2, axis=1))
+        threshold = max(float(raw.max()) * 0.1, 1e-6)
+        activity = (raw > threshold).mean(axis=0)  # share of the window each voice is talking
         if np.std(mouth[valid]) < cfg.min_mouth_std:
-            self.reason = "lips not moving"
-            return self.choice
-        lips = filtered_signal(mouth, FPS)
-        envelopes = np.sqrt(np.mean(candidates[: frames * hop].reshape(frames, hop, 2) ** 2, axis=1))
-        max_lag = round(cfg.max_lag_seconds * FPS)
-        scores = []
-        for source in range(2):
-            raw = envelopes[:, source]
-            floor = max(float(np.percentile(raw, 10)), float(np.max(raw)) * .02, 1e-8)
-            sound = filtered_signal(np.log1p(raw / floor), FPS)
-            best = -1.0
-            for lag in range(-max_lag, max_lag + 1):
-                a = lips[max(0, lag): frames + min(0, lag)]
-                b = sound[max(0, -lag): frames - max(0, lag)]
-                if len(a) >= frames // 2:
-                    value = correlation(a, b)
-                    if np.isfinite(value):
-                        best = max(best, value)
-            scores.append(best)
-        self.scores = [round(s, 2) for s in scores]
-        winner = int(np.argmax(scores))
-        if scores[winner] < cfg.min_correlation or scores[winner] - scores[1 - winner] < cfg.min_margin:
-            self.reason = "ambiguous"
-            return self.choice
-        if winner != self.choice:  # require consecutive agreement before switching
-            self.pending_count = self.pending_count + 1 if winner == self.pending else 1
-            self.pending = winner
-            if self.choice != -1 and self.pending_count < cfg.switch_confirmation_windows:
-                self.reason = "confirming switch"
+            difference = activity[1] - activity[0]
+            if abs(difference) < 0.3:
+                self.reason = "lips not moving"
                 return self.choice
-        self.choice, self.reason = winner, "matched"
+            # The tracked person is silent while one voice talks: that voice is someone else.
+            delta, self.reason = -self.STILL_WEIGHT * difference, "lips still, other voice talking"
+            self.scores = [None, None]
+        else:
+            lips = filtered_signal(mouth, FPS)
+            sounds = []
+            for source in range(2):
+                floor = max(float(np.percentile(raw[:, source], 10)), float(np.max(raw[:, source])) * .02, 1e-8)
+                sounds.append(filtered_signal(np.log1p(raw[:, source] / floor), FPS))
+            best = None
+            max_lag = round(self.MAX_LAG_S * FPS)
+            for lag in range(-max_lag, max_lag + 1):  # one lag shared by both voices
+                a = lips[max(0, lag): frames + min(0, lag)]
+                if len(a) < frames // 2:
+                    continue
+                scores = []
+                for sound in sounds:
+                    value = correlation(a, sound[max(0, -lag): frames - max(0, lag)])
+                    scores.append(value if np.isfinite(value) else -1.0)
+                if best is None or max(scores) > max(best):
+                    best = scores
+            if best is None:
+                self.reason = "ambiguous"
+                return self.choice
+            self.scores = [round(v, 2) for v in best]
+            confidence = min(1.0, max(0.0, (max(best) - 0.1) / 0.3))  # weak matches count little
+            delta = (best[1] - best[0]) * confidence
+            self.reason = "matched" if abs(delta) > 0.05 else "ambiguous"
+        alpha = 1 - np.exp(-dt / self.EVIDENCE_TAU_S)
+        self.evidence += alpha * (delta - self.evidence)
+        previous = self.choice
+        if self.choice == -1 and abs(self.evidence) > self.ENTER:
+            self.choice = int(self.evidence > 0)
+        elif self.choice == 0 and self.evidence > self.SWITCH:
+            self.choice = 1
+        elif self.choice == 1 and self.evidence < -self.SWITCH:
+            self.choice = 0
+        if previous != -1 and self.choice != previous:
+            self.switches += 1
+            self.reason = "switched"
+        elif self.choice != -1 and self.reason == "matched" and (delta > 0) != (self.choice == 1):
+            self.reason = "holding (window disagrees)"
         return self.choice
+
+class MaskFocus:
+    """Organic Focus: lower the other voices inside the original, full-band audio.
+
+    The separated voices are only used to estimate, per short-time frequency bin,
+    how much of the original belongs to the person on camera (a soft mask). That bin
+    is then turned toward `boost` (target) or `duck` (everyone else) and smoothed
+    over time, so the result keeps the room, the 48 kHz bandwidth and the natural
+    timbre instead of the separator's artifacts. Above the model's band (8 kHz for a
+    16 kHz model) bins follow the target's overall share in 300 Hz-4 kHz. Without a
+    confident target the original passes through unchanged.
+    """
+    def __init__(self, rate, model_rate, boost=2.0, duck=0.4, attack_s=0.03, release_s=0.15):
+        self.rate = rate
+        self.n = 1024 if rate >= 32000 else 512
+        self.h = self.n // 4
+        self.win = np.sqrt(np.hanning(self.n + 1)[:-1])
+        self.norm = float(np.sum(self.win ** 2)) / self.h
+        freqs = np.fft.rfftfreq(self.n, 1 / rate)
+        top = 0.45 * model_rate
+        self.ref = (freqs >= 300) & (freqs <= min(4000.0, top))
+        self.high = freqs > top
+        self.boost, self.duck = boost, duck
+        self.up = 1 - np.exp(-self.h / (attack_s * rate))
+        self.down = 1 - np.exp(-self.h / (release_s * rate))
+        self.gain = np.ones(len(freqs))
+        self.frame_o, self.frame_t = np.zeros(self.n), np.zeros(self.n)
+        self.ola = np.zeros(self.n)
+        self.rest_o, self.rest_t, self.rest_a = np.zeros(0), np.zeros(0), np.zeros(0, bool)
+        self.share = 0.0  # last target share, for status
+        self.latency = self.n - self.h
+
+    def process(self, original, target, active):
+        """Feed aligned input-rate samples; returns the available output (latency samples late)."""
+        o = np.concatenate([self.rest_o, original])
+        t = np.concatenate([self.rest_t, target if active else np.zeros(len(original))])
+        a = np.concatenate([self.rest_a, np.full(len(original), bool(active))])
+        out, h = [], self.h
+        k = 0
+        while k + h <= len(o):
+            self.frame_o = np.concatenate([self.frame_o[h:], o[k:k + h]])
+            self.frame_t = np.concatenate([self.frame_t[h:], t[k:k + h]])
+            X = np.fft.rfft(self.frame_o * self.win)
+            if a[k:k + h].mean() > 0.5:
+                T = np.fft.rfft(self.frame_t * self.win)
+                pt, pn = np.abs(T) ** 2, np.abs(X - T) ** 2
+                mask = pt / (pt + pn + 1e-12)
+                mask = np.convolve(mask, [0.25, 0.5, 0.25], mode="same")
+                weight = np.abs(X[self.ref]) ** 2
+                self.share = float(np.sum(mask[self.ref] * weight) / max(np.sum(weight), 1e-12))
+                mask[self.high] = self.share
+                wanted = self.duck + (self.boost - self.duck) * mask
+            else:
+                wanted = np.ones_like(self.gain)
+            step = np.where(wanted > self.gain, self.up, self.down)
+            self.gain += step * (wanted - self.gain)
+            self.ola += np.fft.irfft(X * self.gain, self.n) * self.win / self.norm
+            out.append(self.ola[:h].copy())
+            self.ola = np.concatenate([self.ola[h:], np.zeros(h)])
+            k += h
+        self.rest_o, self.rest_t, self.rest_a = o[k:], t[k:], a[k:]
+        return np.concatenate(out) if out else np.zeros(0)
 
 
 class StreamingSeparator:
@@ -178,7 +275,7 @@ class StreamingSeparator:
     def __init__(self, rate, separate, window_s=1.5, hop_s=0.25, lookahead_s=0.25,
                  crossfade_s=0.03, delay_s=None, picker=None, anchor_us=0,
                  focus_db=6.0, duck_db=-8.0, record_seconds=0, model_rate=MODEL_RATE,
-                 identity=None):
+                 identity=None, focus_style="mask"):
         self.mr = model_rate
         if rate % self.mr:
             raise ValueError(f"test mode needs a capture rate divisible by {self.mr} Hz, not {rate}")
@@ -195,6 +292,9 @@ class StreamingSeparator:
         self.identity = identity     # optional IdentityTracker (speaker voiceprints)
         self.stitch_confidence = 0.0
         self.focus_gain, self.duck_gain = 10 ** (focus_db / 20), 10 ** (duck_db / 20)
+        self.focus_style = focus_style            # "mask" (organic) or "mix" (separated voice)
+        self.mask = MaskFocus(rate, model_rate, self.focus_gain, self.duck_gain)
+        self.focus_out, self.focus_start = np.zeros(0), None  # organic Focus, input rate
         self.down = Decimator(self.factor)
         # Both FIRs are linear phase: voices lag the input by their group delays.
         self.group = 16 * self.factor if self.factor > 1 else 0
@@ -263,6 +363,8 @@ class StreamingSeparator:
                 if drop:
                     self.voices, self.picks = self.voices[drop:], self.picks[drop:]
                     self.out_start += drop
+        if monitor == "focus" and self.focus_style == "mask":
+            return self._read_mask(start, end, original)
         if monitor == "voice1":
             return out[:, 0]
         if monitor == "voice2":
@@ -272,6 +374,21 @@ class StreamingSeparator:
         focus = self.focus_gain * target + self.duck_gain * (original - target)
         focus[unpicked] = original[unpicked]
         return focus
+
+    def _read_mask(self, start, end, original):
+        """Organic Focus output for [start, end); missing samples fall back to the original."""
+        n = end - start
+        with self.lock:
+            out = original.copy()
+            if self.focus_start is not None:
+                lo, hi = max(start, self.focus_start), min(end, self.focus_start + len(self.focus_out))
+                if hi > lo:
+                    out[lo - start: hi - start] = self.focus_out[lo - self.focus_start: hi - self.focus_start]
+                drop = max(0, start - self.focus_start)
+                if drop:
+                    self.focus_out = self.focus_out[drop:]
+                    self.focus_start += drop
+        return out[:n]
 
     def _original(self, start, n):
         out = np.zeros(n)
@@ -357,6 +474,19 @@ class StreamingSeparator:
         with self.lock:
             if self.out_start is None:
                 self.out_start = e0 * self.factor
+            # Organic Focus for the same samples, computed on the aligned original.
+            begin = self.out_start + len(self.voices)
+            original = self._original(begin - self.group, len(up))
+        self.mask.boost, self.mask.duck = self.focus_gain, self.duck_gain
+        lead = gap * self.factor
+        parts = [self.mask.process(original[:lead], np.zeros(lead), False)] if lead else []
+        target = up[lead:, choice] if choice >= 0 else np.zeros(len(up) - lead)
+        parts.append(self.mask.process(original[lead:], target, choice >= 0))
+        focused = np.concatenate(parts)
+        with self.lock:
+            if self.focus_start is None:
+                self.focus_start = begin - self.mask.latency
+            self.focus_out = np.concatenate([self.focus_out, focused])
             self.voices = np.vstack([self.voices, up])
             self.picks = np.concatenate([self.picks, np.full(len(up), choice, dtype=np.int8)])
         self.emitted8 = e1
@@ -415,6 +545,9 @@ class StreamingSeparator:
             "recent_drops": self.recent_drops(),
             "voice_gap_db": round(float(np.mean(self.stats["gap_db"])), 1) if self.stats["gap_db"] else None,
             "model_rate": self.mr,
+            "focus_style": self.focus_style,
+            "target_share": round(self.mask.share, 2),
+            "lip_evidence": round(self.picker.evidence, 2), "pick_switches": self.picker.switches,
             "stitch_confidence": round(self.stitch_confidence, 2),
             "identity": None if self.identity is None else {
                 **self.identity.status(),

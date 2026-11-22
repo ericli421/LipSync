@@ -182,6 +182,13 @@ private fun SeparationTestCard(state: CaptureState, controller: CaptureControlle
                         onClick = { controller.control(CaptureProtocol.monitorSource(value)) }, label = { Text(label) })
                 }
             }
+            Text("Focus sound", style = MaterialTheme.typography.labelLarge)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(selected = test.focusStyle == "mask", enabled = state.connected,
+                    onClick = { controller.control(CaptureProtocol.focusStyle("mask")) }, label = { Text("Natural") })
+                FilterChip(selected = test.focusStyle == "mix", enabled = state.connected,
+                    onClick = { controller.control(CaptureProtocol.focusStyle("mix")) }, label = { Text("Mix (separated)") })
+            }
             if (!state.monitoring) Text("Turn on Headphone monitor above to hear it.", style = MaterialTheme.typography.bodySmall)
             if (test.state == "running") {
                 val budget = (test.hopS * 1000).toInt()
@@ -194,7 +201,8 @@ private fun SeparationTestCard(state: CaptureState, controller: CaptureControlle
                 if (test.voiceDb.size == 2) Text("Voice 1 %.1f dB · Voice 2 %.1f dB · avg gap %s dB".format(
                     test.voiceDb[0], test.voiceDb[1], test.voiceGapDb?.let { "%.1f".format(it) } ?: "–"))
                 Text("Model audio ${test.modelRate?.let { "${it / 1000} kHz" } ?: "–"} · Wi-Fi max gap ${test.maxArrivalGapMs ?: "–"} ms (5 s)")
-                Text("On camera: ${if (test.pick >= 0) "Voice ${test.pick + 1}" else "none yet"} (${test.pickReason})")
+                Text("On camera: ${if (test.pick >= 0) "Voice ${test.pick + 1}" else "none yet"} (${test.pickReason}" +
+                    "${test.lipEvidence?.let { ", evidence %+.2f".format(it) } ?: ""}, ${test.pickSwitches} switches)")
                 test.identityDecision?.let { Text("Voice lock: ${test.identityCorrections} corrections · $it", style = MaterialTheme.typography.bodySmall) }
                 test.liveError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }

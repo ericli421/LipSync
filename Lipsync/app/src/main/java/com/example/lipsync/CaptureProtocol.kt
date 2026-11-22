@@ -33,6 +33,9 @@ object CaptureProtocol {
     /** Turn a laptop audio layer on or off: voice_band or auto_volume. */
     fun layer(name: String, enabled: Boolean) = JSONObject().put("type", "set_layer").put("layer", name).put("enabled", enabled)
 
+    /** Focus style: "mask" keeps the original sound and lowers the others; "mix" uses the separated voice. */
+    fun focusStyle(style: String) = JSONObject().put("type", "set_focus").put("style", style)
+
     /** Choose whose lips drive Focus: the next face left to right, or automatic. */
     fun nextFace() = JSONObject().put("type", "select_face").put("next", true)
     fun autoFace() = JSONObject().put("type", "select_face").put("clear", true)
@@ -48,7 +51,10 @@ data class TestStatus(
     val model: String = "auto",
     val where: String = "",
     val error: String? = null,
-    val monitor: String = "original",
+    val monitor: String = "focus",
+    val focusStyle: String = "mask",
+    val lipEvidence: Double? = null,
+    val pickSwitches: Int = 0,
     val windowS: Double = 2.0,
     val hopS: Double = 0.25,
     val inferMs: Double? = null,
@@ -105,7 +111,9 @@ object PipelineStatus {
         val status = TestStatus(
             enabled = test.optBoolean("enabled"), state = test.optString("state", "off"), where = where,
             model = test.optString("model", "auto"),
-            error = test.text("error"), monitor = test.optString("monitor", "original"),
+            error = test.text("error"), monitor = test.optString("monitor", "focus"),
+            focusStyle = test.optString("focus_style", "mask"),
+            lipEvidence = live?.double("lip_evidence"), pickSwitches = live?.optInt("pick_switches") ?: 0,
             windowS = test.optDouble("window_s", 2.0), hopS = test.optDouble("hop_s", 0.25),
             inferMs = live?.double("infer_ms"), p95Ms = live?.double("infer_p95_ms"),
             keepingUp = live?.takeIf { it.has("keeping_up") && !it.isNull("keeping_up") }?.getBoolean("keeping_up"),

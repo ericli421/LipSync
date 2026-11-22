@@ -43,6 +43,7 @@ export type TestStatus = {
   monitor: "original" | "voice1" | "voice2" | "focus";
   focus_db: number;
   duck_db: number;
+  focus_style?: "mask" | "mix";
   lip_offset_ms: number;
   recording: boolean;
   last_recording: string | null;
@@ -67,7 +68,7 @@ const MONITORS = [
   { value: "original", label: "Original (live)" },
   { value: "voice1", label: "Voice 1" },
   { value: "voice2", label: "Voice 2" },
-  { value: "focus", label: "Focus (lip-picked)" },
+  { value: "focus", label: "Focus (person on camera)" },
 ] as const;
 
 const meter = (db: number) => Math.min(1, Math.max(0, (db + 60) / 60));
@@ -293,6 +294,28 @@ export function SeparationTestPanel({
           <dd>{live ? `${live.swaps_fixed} / ${live.hops} chunks` : "—"}</dd>
         </div>
       </dl>
+
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <span className="text-muted-foreground">Focus sound</span>
+        {(
+          [
+            ["mask", "Natural (lower the others)"],
+            ["mix", "Mix (separated voice)"],
+          ] as const
+        ).map(([style, label]) => (
+          <Button
+            key={style}
+            size="sm"
+            variant={
+              (test.focus_style ?? "mask") === style ? "default" : "outline"
+            }
+            aria-pressed={(test.focus_style ?? "mask") === style}
+            onClick={() => control({ type: "set_focus", style })}
+          >
+            {label}
+          </Button>
+        ))}
+      </div>
 
       <div className="mt-4 grid gap-4 sm:grid-cols-3">
         <label className="block">

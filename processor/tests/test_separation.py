@@ -92,7 +92,7 @@ class StreamingTests(unittest.TestCase):
         for frame in range(250):  # 25 fps mouth trace that follows talker 2
             picker.add(frame * 40_000, float(env2[frame * RATE // 25]))
         separator = StreamingSeparator(RATE, fake_model(), window_s=1.5, hop_s=0.25,
-                                       picker=picker, focus_db=3, duck_db=-15)
+                                       picker=picker, focus_db=3, duck_db=-15, focus_style="mix")
         try:
             focus = run(separator, s1 + s2, "focus")
         finally:
@@ -102,6 +102,40 @@ class StreamingTests(unittest.TestCase):
         before = tone_db(mix, 700) - tone_db(mix, 300)
         after = tone_db(tail, 700) - tone_db(tail, 300)
         self.assertGreater(after - before, 15)  # +3 dB target, -15 dB rest: ~18 dB contrast
+
+    def test_organic_focus_lowers_the_other_voice_in_the_original(self):
+        s1, s2, env2 = sources(10)
+        t = np.arange(len(s2)) / RATE
+        air = 0.02 * np.sin(2 * np.pi * 12000 * t) * env2  # target's sound above the model's band
+        picker = LipPicker()
+        for frame in range(250):
+            picker.add(frame * 40_000, float(env2[frame * RATE // 25]))
+        separator = StreamingSeparator(RATE, fake_model(), window_s=1.5, hop_s=0.25, picker=picker)
+        try:
+            mix = s1 + s2 + air
+            focus = run(separator, mix, "focus")
+        finally:
+            separator.close()
+        self.assertEqual(separator.status()["focus_style"], "mask")
+        delay = separator.delay
+        tail, before = focus[4 * RATE + delay:], mix[4 * RATE:len(mix) - delay]
+        gain_target = tone_db(tail, 700) - tone_db(before, 700)
+        gain_other = tone_db(tail, 300) - tone_db(before, 300)
+        self.assertGreater(gain_target - gain_other, 10)             # the other voice is lowered ...
+        self.assertGreater(gain_other, -12)                           # ... not erased
+        self.assertGreater(tone_db(tail, 12000) - tone_db(before, 12000), 0)  # full band kept for the target
+
+    def test_organic_focus_passes_the_original_without_a_face(self):
+        s1, s2, _ = sources(5)
+        separator = StreamingSeparator(RATE, fake_model(), window_s=1.5, hop_s=0.25)
+        try:
+            mix = s1 + s2
+            focus = run(separator, mix, "focus")
+        finally:
+            separator.close()
+        delay = separator.delay + separator.group
+        out, ref = focus[3 * RATE:], mix[3 * RATE - delay:len(mix) - delay]
+        self.assertLess(20 * np.log10(np.std(out - ref) / np.std(ref)), -25)
 
     def test_slow_model_skips_instead_of_growing_delay(self):
         s1, s2, _ = sources(3)

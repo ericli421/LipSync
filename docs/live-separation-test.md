@@ -108,8 +108,25 @@ pumped up, and limits peaks below clipping. Measured on speech-like bursts:
 -40 dB in -> -21 dB out (+23 dB), -30 -> -15 dB, -10 -> -15 dB. Toggle it in the
 phone's Audio card or the dashboard.
 
-Focus does not try to remove the other person: it boosts the voice matched to
-the face on camera by +6 dB and lowers everything else by 8 dB (sliders).
+Focus does not try to remove the other person. **Natural** (default) keeps the
+original 48 kHz sound: the separated voices only estimate, per short-time
+frequency band, how much belongs to the person on camera, and those bands are
+turned toward +6 dB while the rest go toward -8 dB, smoothed over time
+(30 ms up, 150 ms down). Above the model's band the target's overall share is
+used. With no confident lip pick, or if separation is late, the original plays
+unchanged. Measured on test tones: the on-camera voice rose 12 dB relative to the
+other; the other was lowered, not removed; the target's 12 kHz content was kept.
+It costs about 7 ms per hop on an i7-1260P and adds 16 ms inside the existing
+delay. **Mix** is the previous Focus (separated voice + lowered remainder) for
+comparison. Focus is now the default listen mode.
+
+**Who is on camera** is decided from evidence collected over about 3 s rather
+than per 2 s window (single windows flipped the pick every few seconds in the
+first phone tests, even with the face found 100% of the time). Each window adds
+the lip-correlation difference between the voices at one shared lip/audio lag
+(within +/-200 ms), weighted by how clear the match is; while the tracked lips are
+still, a voice that is talking counts as someone else. The pick changes only when
+the evidence clearly crosses over; the log reports the evidence and switches.
 
 ## Choosing the person on camera
 
