@@ -1,0 +1,77 @@
+{
+  "model": {
+    "model": "sepformer-whamr16k",
+    "label": "SepFormer-WHAMR 16k (noise + reverb, 16 kHz; GPU)",
+    "device": "cuda",
+    "sample_rate": 16000,
+    "gpu": "NVIDIA RTX A3000 Laptop GPU",
+    "torch": "2.9.1+cu126"
+  },
+  "stream_seconds": 6,
+  "status": {
+    "window_s": 2.0,
+    "hop_s": 0.25,
+    "lookahead_s": 0.25,
+    "delay_ms": 750,
+    "infer_ms": 143.4,
+    "infer_p95_ms": 147.6,
+    "rtf": 0.072,
+    "keeping_up": true,
+    "recent_drops": 0,
+    "voice_gap_db": 45.4,
+    "model_rate": 16000,
+    "stitch_confidence": 0.92,
+    "identity": {
+      "voiceprints": [
+        true,
+        true
+      ],
+      "identity_swaps": 0,
+      "updates": [
+        3,
+        17
+      ],
+      "decision": "kept (stitching confident)",
+      "ms": 17.7
+    },
+    "hops": 17,
+    "skipped_hops": 0,
+    "swaps_fixed": 0,
+    "underruns": 0,
+    "behind_ms": 0,
+    "voice_db": [
+      -87.1,
+      -30.8
+    ],
+    "pick": -1,
+    "pick_reason": "face not visible",
+    "lip_scores": [
+      null,
+      null
+    ],
+    "recorded_s": 0,
+    "error": null
+  },
+  "output_peak": 0.007964036196689162,
+  "peak_allocated_cuda_bytes": 502258688,
+  "quality_status": "not_evaluated_generated_input",
+  "model_ms_by_hop": [
+    156.80520003661513,
+    145.31469997018576,
+    143.45859992317855,
+    143.3883998543024,
+    143.11760012060404,
+    143.08549999259412,
+    141.8771999888122,
+    142.69609982147813,
+    144.60930018685758,
+    142.8847999777645,
+    142.64380000531673,
+    143.95009982399642,
+    142.1544998884201,
+    143.7111000996083,
+    143.5985998250544,
+    142.9427000693977,
+    144.22779995948076
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "sample_rate": 16000,
+  "seconds": 65.75,
+  "model": {
+    "model": "sepformer-whamr16k",
+    "label": "SepFormer-WHAMR 16k (noise + reverb, 16 kHz; GPU)",
+    "device": "cuda",
+    "sample_rate": 16000,
+    "gpu": "NVIDIA RTX A3000 Laptop GPU",
+    "torch": "2.9.1+cu126"
+  },
+  "window_s": 2.0,
+  "hop_s": 0.25,
+  "lookahead_s": 0.25,
+  "lip_offset_ms": 0.0,
+  "lip_pick_fraction": {
+    "none": 0.39923954372623577,
+    "voice1": 0.30038022813688214,
+    "voice2": 0.30038022813688214
+  },
+  "note": "voice1/voice2 are aligned to mix sample 0 (silence before first output)."
+}
