@@ -9,9 +9,26 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.concurrency import run_in_threadpool
 from processor.audio_chain import AudioChain
 from processor.bridge import Hub, MAX_MESSAGE_BYTES, MODE, Outbox, Session
+from processor.test_mode import TestMode
 
 app = FastAPI(title="LipSync local processor")
 hub = Hub()
+loop = None
+CHAIN_CONTROLS = ("set_layer", "set_band")
+
+
+def pipeline_status():
+    status = hub.chain.status() if hub.chain is not None else hub.idle_pipeline()
+    return {**status, "test": test_mode.status()}
+
+
+def notify_viewers():
+    """Called from the model-loading thread when test mode changes state."""
+    if loop is not None:
+        loop.call_soon_threadsafe(lambda: hub.publish(pipeline_status()))
+
+
+test_mode = TestMode(on_change=notify_viewers)
 
 class FrameProcessor:
     """Load vision lazily; a missing face model does not stop raw audio."""
@@ -85,11 +102,13 @@ async def send_loop(sock, outbox):
 
 @app.websocket("/ws/viewer")
 async def viewer(sock: WebSocket):
+    global loop
     await sock.accept()
+    loop = asyncio.get_running_loop()
     outbox = Outbox()
     hub.viewers.add(outbox)
     outbox.put(hub.status())
-    outbox.put(hub.chain.status() if hub.chain is not None else hub.idle_pipeline())
+    outbox.put(pipeline_status())
     sender = asyncio.create_task(send_loop(sock, outbox))
     try:
         while True:
@@ -98,12 +117,14 @@ async def viewer(sock: WebSocket):
                 message = json.loads(text) if len(text) <= 4096 else None
                 if not isinstance(message, dict):
                     raise ValueError("expected JSON object")
-                hub.settings.update(message)
+                if message.get("type") in CHAIN_CONTROLS:
+                    hub.settings.update(message)
+                else:
+                    test_mode.update(message)
             except ValueError as exc:  # JSONDecodeError is a ValueError
                 outbox.put({"type": "control_error", "message": str(exc)})
                 continue
-            status = hub.chain.status() if hub.chain is not None else hub.idle_pipeline()
-            hub.publish(status)
+            hub.publish(pipeline_status())
     except (WebSocketDisconnect, RuntimeError):
         pass
     finally:
@@ -114,7 +135,9 @@ async def viewer(sock: WebSocket):
 
 @app.websocket("/ws/capture")
 async def capture(sock: WebSocket):
+    global loop
     await sock.accept()
+    loop = asyncio.get_running_loop()
     session = None
     sender = worker = None
     processor = FrameProcessor()
@@ -127,6 +150,7 @@ async def capture(sock: WebSocket):
             try:
                 encoded, info = await run_in_threadpool(processor.process, jpeg, message["capture_time_us"])
                 if hub.session is session:
+                    test_mode.add_mouth(message["capture_time_us"], info)
                     hub.publish({**message, "jpeg_base64": base64.b64encode(encoded).decode(), "info": info})
                     outbox.put({"type": "video_ack", "seq": message["seq"], "session_id": session.id})
             except Exception as exc:
@@ -138,6 +162,7 @@ async def capture(sock: WebSocket):
         chain = AudioChain(session.sample_rate, hub.settings)
         hub.begin(session, outbox)
         hub.chain = chain
+        test_mode.attach(session.id, session.sample_rate)
         sender = asyncio.create_task(send_loop(sock, outbox))
         worker = asyncio.create_task(process_video())
         while True:
@@ -150,9 +175,14 @@ async def capture(sock: WebSocket):
                     processed = chain.process(data)
                 except Exception as exc:  # never stop the relay: fall back to raw audio
                     chain.error, processed = f"Audio chain failed: {exc}", data
+                test_mode.feed(processed, message["first_sample"], message["capture_time_us"])
+                try:  # test mode: a separated voice or the lip-focused mix, delayed
+                    processed = test_mode.output(len(processed) // 2) or processed
+                except Exception as exc:
+                    test_mode.error = f"Test mode output failed: {exc}"
                 hub.publish({**message, "pcm_base64": base64.b64encode(processed).decode()}, include_phone=True)
                 if message["seq"] % 5 == 0:  # meters every 100 ms
-                    hub.publish({**chain.status(), "session_id": session.id})
+                    hub.publish({**pipeline_status(), "session_id": session.id})
             elif not pending.full():
                 pending.put_nowait((message, data))
             else:
@@ -167,6 +197,7 @@ async def capture(sock: WebSocket):
         if session:
             if hub.session is session:
                 hub.chain = None
+            test_mode.detach(session.id)
             hub.end(session)
         for task in (sender, worker):
             if task:

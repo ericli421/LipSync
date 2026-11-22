@@ -2,6 +2,10 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { viewerUrl } from "@/lib/processor-url";
+import {
+  SeparationTestPanel,
+  type TestStatus,
+} from "@/components/dashboard/separation-test-panel";
 
 type Session = { session_id: string; device_name: string; sample_rate: number };
 type Info = { face_found: boolean; openness: number; warning?: string };
@@ -12,6 +16,7 @@ type Pipeline = {
   out_db: number | null;
   process_ms: number | null;
   error: string | null;
+  test?: TestStatus;
 };
 const BANDS = [
   { label: "Voice 80 Hz – 8 kHz", low_hz: 80, high_hz: 8000 },
@@ -254,9 +259,12 @@ export function PhoneDashboard() {
         <div>
           <p className="text-muted-foreground">Audio mode</p>
           <p className="mt-1 font-medium">
-            {pipeline?.layers.voice_band
-              ? "Voice band filter"
-              : "Raw passthrough"}
+            {pipeline?.test?.state === "running" &&
+            pipeline.test.monitor !== "original"
+              ? `Test · ${pipeline.test.monitor} (delayed)`
+              : pipeline?.layers.voice_band
+                ? "Voice band filter"
+                : "Raw passthrough"}
           </p>
         </div>
         <div>
@@ -365,6 +373,13 @@ export function PhoneDashboard() {
           </p>
         )}
       </div>
+      {pipeline?.test && (
+        <SeparationTestPanel
+          test={pipeline.test}
+          connected={!!session}
+          control={control}
+        />
+      )}
       <p className="border-t px-5 py-3 text-sm text-muted-foreground">
         Use headphones to avoid feedback. Voice isolation and captions are not
         enabled yet; the voice band filter removes rumble and hiss only.
