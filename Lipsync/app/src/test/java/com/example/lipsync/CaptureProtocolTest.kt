@@ -27,6 +27,8 @@ class CaptureProtocolTest {
         assertEquals("sepformer-whamr16k", CaptureProtocol.testMode(true, "sepformer-whamr16k", 1.0, 0.5).getString("model"))
         assertEquals(0.25, start.getDouble("hop_s"), 0.0)
         assertEquals("focus", CaptureProtocol.monitorSource("focus").getString("source"))
+        assertTrue(start.getBoolean("identity"))
+        assertFalse(CaptureProtocol.testMode(true, identity = false).getBoolean("identity"))
     }
     @Test fun parsesPipelineStatusWithNullsAndLog() {
         val idle = org.json.JSONObject("""{"type":"pipeline","test":{"enabled":false,"state":"off","error":null,
@@ -41,7 +43,8 @@ class CaptureProtocolTest {
             "info":{"model":"sepformer-whamr","device":"cuda","gpu":"NVIDIA RTX A3000"},"monitor":"focus",
             "window_s":1.5,"hop_s":0.25,"live":{"infer_ms":41.5,"infer_p95_ms":60.0,"keeping_up":true,"hops":20,
             "skipped_hops":0,"delay_ms":750,"voice_db":[-20.5,-35.0],"pick":0,"pick_reason":"matched","error":null,
-            "recent_drops":0,"voice_gap_db":14.5,"model_rate":16000}},"network":{"max_gap_ms":180}}""")
+            "recent_drops":0,"voice_gap_db":14.5,"model_rate":16000,"identity":{"identity_swaps":2,
+            "decision":"single swap (+0.31)"}},"identity":true,"identity_ready":true},"network":{"max_gap_ms":180}}""")
         val (live, none) = PipelineStatus.parse(running)
         assertEquals("sepformer-whamr on NVIDIA RTX A3000", live.where)
         assertEquals(41.5, live.inferMs!!, 0.0)
@@ -52,6 +55,9 @@ class CaptureProtocolTest {
         assertEquals(14.5, live.voiceGapDb!!, 0.0)
         assertEquals(180, live.maxArrivalGapMs)
         assertEquals("auto", live.model)
+        assertTrue(live.identityReady)
+        assertEquals(2, live.identityCorrections)
+        assertEquals("single swap (+0.31)", live.identityDecision)
         assertTrue(none.isEmpty())
     }
     @Test fun handshakeAndMediaCarryTiming() {

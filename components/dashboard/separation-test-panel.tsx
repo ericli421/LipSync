@@ -20,6 +20,12 @@ export type TestLive = {
   lip_scores: [number | null, number | null];
   recorded_s: number;
   error: string | null;
+  identity?: {
+    identity_swaps: number;
+    decision?: string;
+    voiceprints: [boolean, boolean];
+    ms: number | null;
+  } | null;
 };
 export type TestStatus = {
   enabled: boolean;
@@ -40,6 +46,8 @@ export type TestStatus = {
   lip_offset_ms: number;
   recording: boolean;
   last_recording: string | null;
+  identity?: boolean;
+  identity_ready?: boolean;
   live: TestLive | null;
 };
 
@@ -98,6 +106,7 @@ export function SeparationTestPanel({
       model: test.model,
       window_s: test.window_s,
       hop_s: test.hop_s,
+      identity: test.identity ?? true,
       ...changes,
     });
   const select = "rounded-md border bg-background px-2 py-1";
@@ -123,6 +132,27 @@ export function SeparationTestPanel({
         >
           Test mode · {test.enabled ? "On" : "Off"}
         </Button>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <Button
+          size="sm"
+          variant={(test.identity ?? true) ? "default" : "outline"}
+          aria-pressed={test.identity ?? true}
+          onClick={() => configure({ identity: !(test.identity ?? true) })}
+        >
+          Voice lock · {(test.identity ?? true) ? "On" : "Off"}
+        </Button>
+        <span className="text-muted-foreground">
+          {!(test.identity ?? true)
+            ? "Voices can swap after a pause."
+            : test.identity_ready
+              ? `Speaker voiceprints keep each person in one voice${
+                  live?.identity
+                    ? ` · ${live.identity.identity_swaps} corrections · ${live.identity.decision ?? ""}`
+                    : ""
+                }`
+              : "Needs the GPU; see the debug log."}
+        </span>
       </div>
 
       <div className="mt-3 flex flex-wrap gap-3">

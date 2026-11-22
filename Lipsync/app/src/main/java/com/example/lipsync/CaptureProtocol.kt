@@ -25,9 +25,10 @@ object CaptureProtocol {
         .put("capture_time_us", captureUs).put("timing", timing)
 
     /** Start/stop the laptop's live separation test (same control the dashboard sends). */
-    fun testMode(enabled: Boolean, model: String = "auto", windowS: Double = 2.0, hopS: Double = 0.25) = JSONObject()
+    fun testMode(enabled: Boolean, model: String = "auto", windowS: Double = 2.0, hopS: Double = 0.25,
+                 identity: Boolean = true) = JSONObject()
         .put("type", "set_test_mode").put("enabled", enabled).put("model", model)
-        .put("window_s", windowS).put("hop_s", hopS)
+        .put("window_s", windowS).put("hop_s", hopS).put("identity", identity)
 
     /** What the laptop sends back for monitoring: original, voice1, voice2 or focus. */
     fun monitorSource(source: String) = JSONObject().put("type", "set_monitor").put("source", source)
@@ -57,6 +58,10 @@ data class TestStatus(
     val voiceGapDb: Double? = null,
     val modelRate: Int? = null,
     val maxArrivalGapMs: Int? = null,
+    val identity: Boolean = true,
+    val identityReady: Boolean = false,
+    val identityDecision: String? = null,
+    val identityCorrections: Int = 0,
 )
 
 data class LogLine(val seq: Long, val time: String, val level: String, val source: String, val message: String) {
@@ -75,6 +80,7 @@ object PipelineStatus {
         } ?: emptyList()
         val test = message.optJSONObject("test") ?: return TestStatus() to log
         val network = message.optJSONObject("network")
+        val lock = test.optJSONObject("live")?.optJSONObject("identity")
         val info = test.optJSONObject("info")
         val live = test.optJSONObject("live")
         val where = info?.let { listOfNotNull(it.text("model"), it.text("gpu") ?: it.text("device")).joinToString(" on ") } ?: ""
@@ -94,6 +100,10 @@ object PipelineStatus {
             voiceGapDb = live?.double("voice_gap_db"),
             modelRate = live?.takeIf { it.has("model_rate") }?.getInt("model_rate"),
             maxArrivalGapMs = network?.takeIf { it.has("max_gap_ms") }?.getInt("max_gap_ms"),
+            identity = test.optBoolean("identity", true),
+            identityReady = test.optBoolean("identity_ready"),
+            identityDecision = lock?.text("decision"),
+            identityCorrections = lock?.optInt("identity_swaps") ?: 0,
         )
         return status to log
     }

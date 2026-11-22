@@ -4,6 +4,8 @@ import base64
 from contextlib import suppress
 import json
 import logging
+import os
+import sys
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 import time
@@ -35,6 +37,9 @@ def configure_logging():
     console = logging.StreamHandler()
     console.setFormatter(formatter)
     logger.addHandler(console)
+    if "unittest" in sys.modules and os.environ.get("LIPSYNC_LOG_FILE") != "on":
+        logger._lipsync_configured = True  # tests must not write into the shared session log
+        return
     try:
         LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
         file = RotatingFileHandler(LOG_FILE, maxBytes=2_000_000, backupCount=3, encoding="utf-8")
@@ -71,6 +76,27 @@ class ArrivalStats:
 
 
 arrivals = ArrivalStats()
+
+
+class VideoStats:
+    """Processed phone frames and how many had a tracked face (for the 5 s log line)."""
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.frames, self.faces = 0, 0
+
+    def frame(self, info):
+        self.frames += 1
+        self.faces += bool(info.get("face_found"))
+
+    def text(self):
+        if not self.frames:
+            return "video: no frames processed"
+        return f"video: {self.frames / 5:.1f} fps, face found {100 * self.faces / self.frames:.0f}%"
+
+
+video_stats = VideoStats()
 
 
 def pipeline_status():
@@ -111,7 +137,9 @@ def report_audio_progress(seq, session_id, chain):
     if seq % 250 == 249:  # log every five seconds without suppressing meters
         net = arrivals.status()
         debug.log("info", "stream", f"5 s: {net['blocks']} blocks, max arrival gap {net['max_gap_ms']} ms, "
-                  f"{net['gaps_over_100ms']} gaps > 100 ms, in {chain.in_db} dB, out {chain.out_db} dB")
+                  f"{net['gaps_over_100ms']} gaps > 100 ms, in {chain.in_db} dB, out {chain.out_db} dB, "
+                  f"{video_stats.text()}")
+        video_stats.reset()
         line = test_mode.summary()
         if line:
             debug.log("info", "test", line)
@@ -237,6 +265,7 @@ async def capture(sock: WebSocket):
                 encoded, info = await run_in_threadpool(processor.process, jpeg, message["capture_time_us"])
                 if hub.session is session:
                     test_mode.add_mouth(message["capture_time_us"], info)
+                    video_stats.frame(info)
                     hub.publish({**message, "jpeg_base64": base64.b64encode(encoded).decode(), "info": info})
                     outbox.put({"type": "video_ack", "seq": message["seq"], "session_id": session.id})
             except Exception as exc:

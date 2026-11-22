@@ -96,6 +96,37 @@ on first use (pinned revisions, SHA-256 verified) into the Hugging Face cache.
 8. **Record test clip** saves `recordings/live-test-*/` with `mix.wav`,
    `voice1.wav`, `voice2.wav` (aligned at the selected model's 8 or 16 kHz rate) and `meta.json` (settings, model,
    share of time each voice was picked) for offline scoring.
+   Recordings are git-ignored: to share them, `git add -f recordings/live-test-*`.
+
+## Keeping each person in one voice (Voice lock)
+
+Stitching chunks only works while a voice is present in the overlap. After a
+pause a separator often puts whoever talks into its first output, so Voice 1
+switched person mid-recording. **Voice lock** (on by default, GPU only) keeps a
+speaker voiceprint per voice (pinned SpeechBrain ECAPA-TDNN, VoxCeleb) and:
+
+- judges a chunk only when a voice is active for at least 0.5 s, using its active
+  frames only;
+- after a pause (stitching unsure) reorders the chunk on a clear voiceprint match;
+- while stitching is confident, corrects it only on strong disagreement for two
+  chunks in a row, or one once both voiceprints are trained;
+- learns a voiceprint only from audio that matches it clearly better than the
+  other, so the two never blend.
+
+Measured with two real VoxCeleb voices taking turns with 2.5 s pauses and a
+"loudest talker first" separator: without voice lock every turn landed in Voice 1;
+with it A stayed 100% in Voice 1 and B landed 70–74% in Voice 2 (the first ~0.5 s
+of a returning voice can still play in the wrong stream). With 0.8 s pauses
+stitching alone was already correct and voice lock changed nothing. This is a
+synthetic check, not a measurement on your recordings. On an i7-1260P CPU one
+voiceprint takes about 190 ms, so it is disabled without a GPU unless
+`LIPSYNC_IDENTITY_CPU=1`.
+
+Focus also locks in: once a face is matched, the other voice must win four lip
+windows in a row (about 1 s) before Focus switches. Lip frames are now located
+relative to when separation started; previously, starting test mode after
+connecting made every lip decision "face not visible", so Focus played the
+unprocessed mix.
 
 ## How it works and its limits
 

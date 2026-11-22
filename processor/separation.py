@@ -21,6 +21,7 @@ on-camera mouth openness (scripts/lip_matching.py logic, applied per chunk).
 from __future__ import annotations
 
 import collections
+import dataclasses
 import queue
 import threading
 import time
@@ -36,6 +37,9 @@ from lip_matching import MatchConfig, correlation, filtered_signal  # noqa: E402
 MODEL_RATE = 8000
 FPS = 25
 MONITORS = ("original", "voice1", "voice2", "focus")
+# Lock in: once a face is matched to a voice, the other voice must win 4 windows in
+# a row (about 1 s at a 0.25 s hop) before Focus switches person.
+LOCK_CONFIG = dataclasses.replace(MatchConfig(), switch_confirmation_windows=4)
 
 
 class Decimator:
@@ -83,7 +87,7 @@ class LipPicker:
     maps to time anchor_us + i / rate. `offset_ms` shifts video relative to audio
     because phone audio/video timestamps are not verified to be synchronized.
     """
-    def __init__(self, config=MatchConfig(), offset_ms=0.0):
+    def __init__(self, config=LOCK_CONFIG, offset_ms=0.0):
         self.config = config
         self.offset_ms = offset_ms
         self.mouths = collections.deque(maxlen=FPS * 10)
@@ -170,7 +174,8 @@ class StreamingSeparator:
     """Feed input-rate float blocks; read delayed output blocks for a monitor."""
     def __init__(self, rate, separate, window_s=1.5, hop_s=0.25, lookahead_s=0.25,
                  crossfade_s=0.03, delay_s=None, picker=None, anchor_us=0,
-                 focus_db=3.0, duck_db=-15.0, record_seconds=0, model_rate=MODEL_RATE):
+                 focus_db=3.0, duck_db=-15.0, record_seconds=0, model_rate=MODEL_RATE,
+                 identity=None):
         self.mr = model_rate
         if rate % self.mr:
             raise ValueError(f"test mode needs a capture rate divisible by {self.mr} Hz, not {rate}")
@@ -183,7 +188,9 @@ class StreamingSeparator:
         delay_s = lookahead_s + 2 * hop_s if delay_s is None else delay_s
         self.delay = round(delay_s * rate)
         self.picker = picker or LipPicker()
-        self.anchor_us = anchor_us
+        self.anchor_us = anchor_us   # phone capture time of this separator's first sample
+        self.identity = identity     # optional IdentityTracker (speaker voiceprints)
+        self.stitch_confidence = 0.0
         self.focus_gain, self.duck_gain = 10 ** (focus_db / 20), 10 ** (duck_db / 20)
         self.down = Decimator(self.factor)
         # Both FIRs are linear phase: voices lag the input by their group delays.
@@ -207,7 +214,8 @@ class StreamingSeparator:
         self.stats = {"hops": 0, "skipped_hops": 0, "swaps": 0, "underruns": 0,
                       "infer_ms": collections.deque(maxlen=40), "behind_ms": 0.0,
                       "late_drops": collections.deque(maxlen=2000),
-                      "gap_db": collections.deque(maxlen=40)}
+                      "gap_db": collections.deque(maxlen=40),
+                      "identity_ms": collections.deque(maxlen=40)}
         self.voice_db = [-120.0, -120.0]
         self.error = None
         self.record_limit = record_seconds * self.mr
@@ -318,7 +326,14 @@ class StreamingSeparator:
         self.stats["infer_ms"].append((time.perf_counter() - began) * 1000)
         if est.shape != (self.W, 2) or not np.isfinite(est).all():
             raise ValueError(f"model returned {est.shape} or non-finite output")
-        est = self._scale(self._align(est, start), window)
+        est = self._align(est, start)
+        if self.identity is not None:  # keep each output on the same person after pauses
+            began = time.perf_counter()
+            est, swapped = self.identity.assign(est, self.mr, self.stitch_confidence)
+            self.stats["identity_ms"].append((time.perf_counter() - began) * 1000)
+            if swapped:
+                self.gains = self.gains[::-1].copy()
+        est = self._scale(est, window)
         choice = self.picker.pick(est, self.anchor_us + start * 1_000_000 // self.mr, self.mr)
         e0, e1 = end - self.D - self.H, end - self.D
         region = est[e0 - start: e1 - start].copy()
@@ -354,6 +369,7 @@ class StreamingSeparator:
 
     def _align(self, est, start):
         """Reorder/sign-correct candidates to match the previous chunk on the overlap."""
+        self.stitch_confidence = 0.0
         if self.prev is None:
             return est
         pstart, pest = self.prev
@@ -363,7 +379,9 @@ class StreamingSeparator:
         a, b = est[lo - start: hi - start], pest[lo - pstart: hi - pstart]
         c = np.array([[correlation(a[:, i], b[:, j]) for j in range(2)] for i in range(2)])
         c = np.nan_to_num(c)
-        if abs(c[0, 1]) + abs(c[1, 0]) > abs(c[0, 0]) + abs(c[1, 1]):
+        keep, swap = abs(c[0, 0]) + abs(c[1, 1]), abs(c[0, 1]) + abs(c[1, 0])
+        self.stitch_confidence = abs(keep - swap)  # ~2 when both voices overlap clearly, ~0 after a pause
+        if swap > keep:
             est, c = est[:, ::-1], c[::-1]
             self.stats["swaps"] += 1
         signs = np.where(np.diag(c) < 0, -1.0, 1.0)
@@ -391,6 +409,10 @@ class StreamingSeparator:
             "recent_drops": self.recent_drops(),
             "voice_gap_db": round(float(np.mean(self.stats["gap_db"])), 1) if self.stats["gap_db"] else None,
             "model_rate": self.mr,
+            "stitch_confidence": round(self.stitch_confidence, 2),
+            "identity": None if self.identity is None else {
+                **self.identity.status(),
+                "ms": round(float(np.median(self.stats["identity_ms"])), 1) if self.stats["identity_ms"] else None},
             "hops": self.stats["hops"], "skipped_hops": self.stats["skipped_hops"],
             "swaps_fixed": self.stats["swaps"], "underruns": self.stats["underruns"],
             "behind_ms": round(self.stats["behind_ms"]),

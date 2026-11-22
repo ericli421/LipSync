@@ -121,11 +121,12 @@ private fun SeparationTestCard(state: CaptureState, controller: CaptureControlle
                 else -> "Off"
             }, color = if (test.state == "error") MaterialTheme.colorScheme.error else Color.Unspecified)
             Button(enabled = state.connected, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                onClick = { controller.control(CaptureProtocol.testMode(!test.enabled, test.model, test.windowS, test.hopS)) }) {
+                onClick = { controller.control(CaptureProtocol.testMode(!test.enabled, test.model, test.windowS, test.hopS, test.identity)) }) {
                 Text(if (test.enabled) "Stop SepFormer test" else "Start SepFormer test")
             }
-            fun configure(model: String = test.model, window: Double = test.windowS, hop: Double = test.hopS) =
-                controller.control(CaptureProtocol.testMode(test.enabled, model, window, hop))
+            fun configure(model: String = test.model, window: Double = test.windowS, hop: Double = test.hopS,
+                          identity: Boolean = test.identity) =
+                controller.control(CaptureProtocol.testMode(test.enabled, model, window, hop, identity))
             Text("Model (changing it reloads on the laptop)", style = MaterialTheme.typography.labelLarge)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 MODELS.forEach { (value, label) ->
@@ -143,6 +144,19 @@ private fun SeparationTestCard(state: CaptureState, controller: CaptureControlle
                     FilterChip(selected = test.hopS == hop, enabled = state.connected,
                         onClick = { configure(hop = hop) }, label = { Text("hop ${hop} s") })
                 }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Column(Modifier.weight(1f)) {
+                    Text("Voice lock", style = MaterialTheme.typography.labelLarge)
+                    Text(when {
+                        !test.identity -> "Off: voices can swap after a pause"
+                        test.identityReady -> "On: keeps each person in their own voice (GPU)"
+                        test.state == "loading" -> "Loading voiceprint model…"
+                        else -> "On, but needs the GPU (see Debug log)"
+                    }, style = MaterialTheme.typography.bodySmall)
+                }
+                Switch(checked = test.identity, enabled = state.connected, onCheckedChange = { configure(identity = it) },
+                    modifier = Modifier.semantics { contentDescription = "Voice lock" })
             }
             Text("Listen to", style = MaterialTheme.typography.labelLarge)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -164,6 +178,7 @@ private fun SeparationTestCard(state: CaptureState, controller: CaptureControlle
                     test.voiceDb[0], test.voiceDb[1], test.voiceGapDb?.let { "%.1f".format(it) } ?: "–"))
                 Text("Model audio ${test.modelRate?.let { "${it / 1000} kHz" } ?: "–"} · Wi-Fi max gap ${test.maxArrivalGapMs ?: "–"} ms (5 s)")
                 Text("On camera: ${if (test.pick >= 0) "Voice ${test.pick + 1}" else "none yet"} (${test.pickReason})")
+                test.identityDecision?.let { Text("Voice lock: ${test.identityCorrections} corrections · $it", style = MaterialTheme.typography.bodySmall) }
                 test.liveError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         }

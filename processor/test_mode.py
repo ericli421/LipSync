@@ -4,6 +4,7 @@ from __future__ import annotations
 import collections
 from datetime import datetime
 import json
+import os
 from pathlib import Path
 import threading
 import time
@@ -12,6 +13,7 @@ import numpy as np
 from scipy.io import wavfile
 
 from processor.separation import MODEL_RATE, MONITORS, LipPicker, StreamingSeparator
+from processor.speaker_id import IdentityTracker
 
 ROOT = Path(__file__).resolve().parents[1]
 WINDOWS, HOPS = (1.0, 1.5, 2.0), (0.25, 0.5)
@@ -26,11 +28,14 @@ def _number(message, key, low, high):
 
 
 class TestMode:
-    def __init__(self, loader=None, on_change=None, recordings_dir=ROOT / "recordings", log=None):
+    def __init__(self, loader=None, on_change=None, recordings_dir=ROOT / "recordings", log=None,
+                 embedder_loader=None):
         if loader is None:
             from processor.separation_models import load as loader
         self.loader, self.on_change, self.recordings_dir = loader, on_change, Path(recordings_dir)
         self.log = log or (lambda *args, **kwargs: None)
+        self.embedder_loader = embedder_loader
+        self.identity, self.embed = True, None  # "Voice lock": speaker voiceprints
         self.reported_skips = 0
         self.last_counts = collections.Counter()
         self.lock = threading.RLock()
@@ -58,13 +63,19 @@ class TestMode:
                 from processor.separation_models import MODELS
                 if model != "auto" and model not in MODELS:
                     raise ValueError(f"model must be auto or one of {sorted(MODELS)}")
+                identity = message.get("identity", self.identity)
+                if not isinstance(identity, bool):
+                    raise ValueError("identity must be boolean")
                 window = message.get("window_s", self.window_s)
                 hop = message.get("hop_s", self.hop_s)
                 if window not in WINDOWS or hop not in HOPS:
                     raise ValueError(f"window_s must be in {WINDOWS} and hop_s in {HOPS}")
                 if model != self.model:
                     self.separate, self.loaded_model = None, None
+                if identity != self.identity and self.separate is not None and identity and self.embed is None:
+                    self.separate, self.loaded_model = None, None  # reload to add the voiceprint model
                 self.enabled, self.model, self.window_s, self.hop_s = enabled, model, float(window), float(hop)
+                self.identity = identity
                 self.version += 1
                 if not enabled:
                     self._close_separator()
@@ -114,6 +125,7 @@ class TestMode:
                     error = None
                     where = info.get("gpu") or info.get("device")
                     self.log("info", "test", f"loaded {info.get('model')} on {where} in {time.perf_counter() - began:.1f} s")
+                    embed = self._load_embedder(info)
                 except Exception as exc:
                     separate, info, error = None, None, f"Model failed to load: {exc}"
                     self.log("error", "test", error)
@@ -124,6 +136,7 @@ class TestMode:
                         self.state, self.error = "error", error
                     else:
                         self.separate, self.info, self.loaded_model = separate, info, model
+                        self.embed = embed
                         self.state = "ready" if self.enabled else "off"
                         self.version += 1
                     break
@@ -132,6 +145,25 @@ class TestMode:
 
         self.loading = threading.Thread(target=run, name="separator-loader", daemon=True)
         self.loading.start()
+
+    def _load_embedder(self, info):
+        """Voice lock model; GPU only by default (about 190 ms per voice on a laptop CPU)."""
+        if not self.identity:
+            return None
+        if info.get("device") != "cuda" and os.environ.get("LIPSYNC_IDENTITY_CPU") != "1":
+            self.log("info", "test", "voice lock off: needs the GPU (set LIPSYNC_IDENTITY_CPU=1 to force)")
+            return None
+        try:
+            if self.embedder_loader is None:
+                from processor.speaker_id import load_embedder
+                embed = load_embedder(info.get("device", "cpu"))
+            else:
+                embed = self.embedder_loader(info.get("device", "cpu"))
+            self.log("info", "test", "voice lock ready (ECAPA speaker voiceprints)")
+            return embed
+        except Exception as exc:  # separation keeps working without it
+            self.log("warn", "test", f"voice lock unavailable: {exc}")
+            return None
 
     # ---- session / media ----
     def attach(self, session_id, rate):
@@ -166,7 +198,7 @@ class TestMode:
                 return
             try:
                 if self.built_version != self.version or self.separator is None:
-                    self._build()
+                    self._build(capture_us)
                 if self.separator.error:
                     raise RuntimeError(self.separator.error)
                 self.separator.feed(np.frombuffer(pcm, dtype="<i2").astype(np.float64) / 32768.0)
@@ -185,16 +217,22 @@ class TestMode:
         y = separator.read(n, monitor)
         return (np.clip(y, -1.0, 32767 / 32768) * 32768.0).round().astype("<i2").tobytes()
 
-    def _build(self):
+    def _build(self, anchor_us):
+        """anchor_us: phone capture time of the block about to be fed (separator sample 0).
+
+        The separator counts samples from its own start, so lip frames must be
+        located relative to this moment, not the session start (that mistake made
+        every pick "face not visible" when test mode started after connecting)."""
         self._close_separator()
         session = self.session
         self.picker.choice, self.picker.reason = -1, "waiting for face"
         self.separator = StreamingSeparator(
             session["rate"], self.separate, window_s=self.window_s, hop_s=self.hop_s,
-            lookahead_s=LOOKAHEAD_S, picker=self.picker, anchor_us=session["anchor_us"],
+            lookahead_s=LOOKAHEAD_S, picker=self.picker, anchor_us=anchor_us,
             focus_db=self.focus_db, duck_db=self.duck_db,
             record_seconds=RECORD_SECONDS if self.record else 0,
-            model_rate=int((self.info or {}).get("sample_rate", MODEL_RATE)))
+            model_rate=int((self.info or {}).get("sample_rate", MODEL_RATE)),
+            identity=IdentityTracker(self.embed) if (self.identity and self.embed) else None)
         self.built_version, self.state, self.error = self.version, "running", None
         self.reported_skips = 0
         self.last_counts = collections.Counter()
@@ -270,7 +308,16 @@ class TestMode:
                 f"hop {live['hop_s']} s, delay {live['delay_ms']} ms | model {fmt(live['infer_ms'])}/"
                 f"{fmt(live['infer_p95_ms'])} ms (median/p95) | hops {live['hops']}, dropped late {live['recent_drops']} "
                 f"(10 s), playback gaps {live['underruns']} | voices {live['voice_db'][0]}/{live['voice_db'][1]} dB, "
-                f"avg gap {live['voice_gap_db']} dB | lip pick: {picks} -> {target} | monitor {self.monitor}")
+                f"avg gap {live['voice_gap_db']} dB | lip pick: {picks} -> {target} | monitor {self.monitor}"
+                f" | voice lock: {self._lock_text(live)}")
+
+    @staticmethod
+    def _lock_text(live):
+        identity = live.get("identity")
+        if not identity:
+            return "off"
+        return (f"{identity['identity_swaps']} corrections, last {identity.get('decision')}, "
+                f"voiceprints {identity['voiceprints']}, {identity.get('ms')} ms")
 
     def status(self):
         with self.lock:
@@ -279,5 +326,6 @@ class TestMode:
                     "window_s": self.window_s, "hop_s": self.hop_s, "lookahead_s": LOOKAHEAD_S,
                     "monitor": self.monitor, "focus_db": self.focus_db, "duck_db": self.duck_db,
                     "lip_offset_ms": self.lip_offset_ms, "recording": self.record,
+                    "identity": self.identity, "identity_ready": self.embed is not None,
                     "last_recording": self.last_recording,
                     "live": self.separator.status() if self.separator else None}
