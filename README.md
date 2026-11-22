@@ -6,8 +6,6 @@
 
 Built in 36 hours at **CodeJam16** · <!-- 🥇 {prize_or_track} -->
 
-[🎥 Demo Video (to be added)](https://www.youtube.com/watch?v=dQw4w9WgXcQ) · [🚀 Live App (to be added)](https://www.youtube.com/watch?v=dQw4w9WgXcQ) · [📊 Pitch Deck (to be added)](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
-
 </div>
 
 ## 💡 Inspiration
