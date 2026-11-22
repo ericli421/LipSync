@@ -23,7 +23,9 @@ def main():
         from processor.separation_models import load
         infer, info = load('auto', args.device)
         loaded_ms = (time.perf_counter()-began)*1000
-        audio = (.05*np.sin(np.arange(12000)*2*np.pi*333/8000)).astype(np.float32)
+        rate = int(info.get('sample_rate', 8000))
+        count = int(1.5*rate)
+        audio = (.05*np.sin(np.arange(count)*2*np.pi*333/rate)).astype(np.float32)
         if args.device == 'cuda':
             torch.cuda.synchronize()
         began = time.perf_counter()
@@ -31,8 +33,8 @@ def main():
         if args.device == 'cuda':
             torch.cuda.synchronize()
         elapsed = (time.perf_counter()-began)*1000
-        assert output.shape == (12000, 2) and np.isfinite(output).all()
-        report = {'model': info, 'loading_ms': loaded_ms, 'infer_ms': elapsed,
+        assert output.shape == (count, 2) and np.isfinite(output).all()
+        report = {'model': info, 'input_samples': count, 'input_duration_seconds': 1.5, 'loading_ms': loaded_ms, 'infer_ms': elapsed,
                   'hop_budget_ms': 250, 'single_pass_within_hop': elapsed < 250}
     else:
         from scripts.falcon_adapter import FalconAdapter

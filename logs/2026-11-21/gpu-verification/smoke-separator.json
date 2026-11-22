@@ -1,0 +1,19 @@
+{
+  "model": {
+    "model": "sepformer-whamr16k",
+    "label": "SepFormer-WHAMR 16k (noise + reverb, 16 kHz; GPU)",
+    "device": "cuda",
+    "sample_rate": 16000,
+    "gpu": "NVIDIA RTX A3000 Laptop GPU",
+    "torch": "2.9.1+cu126"
+  },
+  "input_samples": 24000,
+  "input_duration_seconds": 1.5,
+  "loading_ms": 27136.090700048953,
+  "infer_ms": 108.974700095132,
+  "hop_budget_ms": 250,
+  "single_pass_within_hop": true,
+  "device": "cuda",
+  "torch": "2.9.1+cu126",
+  "quality_status": "not_evaluated_generated_input"
+}

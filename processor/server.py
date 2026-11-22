@@ -103,6 +103,21 @@ def apply_control(message, source):
 
 test_mode = TestMode(on_change=notify_viewers, log=debug.log)
 
+def report_audio_progress(seq, session_id, chain):
+    """Fast UI meters are independent of the slower diagnostic log summaries."""
+    if seq % 5 == 0:  # viewers every 100 ms, phone every 500 ms
+        test_mode.tick()
+        hub.publish({**pipeline_status(), "session_id": session_id}, include_phone=seq % 25 == 0)
+    if seq % 250 == 249:  # log every five seconds without suppressing meters
+        net = arrivals.status()
+        debug.log("info", "stream", f"5 s: {net['blocks']} blocks, max arrival gap {net['max_gap_ms']} ms, "
+                  f"{net['gaps_over_100ms']} gaps > 100 ms, in {chain.in_db} dB, out {chain.out_db} dB")
+        line = test_mode.summary()
+        if line:
+            debug.log("info", "test", line)
+        arrivals.reset()
+
+
 class FrameProcessor:
     """Load vision lazily; a missing face model does not stop raw audio."""
     def __init__(self):
@@ -267,18 +282,7 @@ async def capture(sock: WebSocket):
                     test_mode.error = f"Test mode output failed: {exc}"
                     debug.log("error", "test", test_mode.error, every_s=5)
                 hub.publish({**message, "pcm_base64": base64.b64encode(processed).decode()}, include_phone=True)
-                if message["seq"] % 5 == 0:  # meters every 100 ms; the phone every 500 ms
-                    test_mode.tick()
-                if message["seq"] % 250 == 249:  # summary every 5 s of audio
-                    net = arrivals.status()
-                    debug.log("info", "stream", f"5 s: {net['blocks']} blocks, max arrival gap {net['max_gap_ms']} ms, "
-                              f"{net['gaps_over_100ms']} gaps > 100 ms, in {chain.in_db} dB, out {chain.out_db} dB")
-                    line = test_mode.summary()
-                    if line:
-                        debug.log("info", "test", line)
-                    arrivals.reset()
-                    hub.publish({**pipeline_status(), "session_id": session.id},
-                                include_phone=message["seq"] % 25 == 0)
+                report_audio_progress(message["seq"], session.id, chain)
             elif not pending.full():
                 pending.put_nowait((message, data))
             else:

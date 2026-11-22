@@ -1,0 +1,44 @@
+{
+  "model": {
+    "model": "sepformer-whamr16k",
+    "label": "SepFormer-WHAMR 16k (noise + reverb, 16 kHz; GPU)",
+    "device": "cuda",
+    "sample_rate": 16000,
+    "gpu": "NVIDIA RTX A3000 Laptop GPU",
+    "torch": "2.9.1+cu126"
+  },
+  "stream_seconds": 6,
+  "status": {
+    "window_s": 2.0,
+    "hop_s": 0.25,
+    "lookahead_s": 0.25,
+    "delay_ms": 750,
+    "infer_ms": 143.6,
+    "infer_p95_ms": 149.8,
+    "rtf": 0.072,
+    "keeping_up": true,
+    "recent_drops": 0,
+    "voice_gap_db": 45.4,
+    "model_rate": 16000,
+    "hops": 17,
+    "skipped_hops": 0,
+    "swaps_fixed": 0,
+    "underruns": 0,
+    "behind_ms": 0,
+    "voice_db": [
+      -87.1,
+      -30.8
+    ],
+    "pick": -1,
+    "pick_reason": "face not visible",
+    "lip_scores": [
+      null,
+      null
+    ],
+    "recorded_s": 0,
+    "error": null
+  },
+  "output_peak": 0.007964036196689162,
+  "peak_allocated_cuda_bytes": 411635200,
+  "quality_status": "not_evaluated_generated_input"
+}

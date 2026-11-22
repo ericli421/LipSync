@@ -94,12 +94,12 @@ on first use (pinned revisions, SHA-256 verified) into the Hugging Face cache.
    synchronized).
 7. Play background noise and repeat 4–6.
 8. **Record test clip** saves `recordings/live-test-*/` with `mix.wav`,
-   `voice1.wav`, `voice2.wav` (8 kHz, aligned) and `meta.json` (settings, model,
+   `voice1.wav`, `voice2.wav` (aligned at the selected model's 8 or 16 kHz rate) and `meta.json` (settings, model,
    share of time each voice was picked) for offline scoring.
 
 ## How it works and its limits
 
-- Every hop, the last *window* seconds (resampled to 8 kHz) are separated into
+- Every hop, the last *window* seconds (resampled to the model's 8 or 16 kHz rate) are separated into
   two candidates. Each chunk's candidates are reordered and sign-corrected to
   match the previous chunk on their overlap ("order swaps fixed" counts these),
   then crossfaded. Only audio ending 0.25 s before the newest sample is used.
@@ -113,8 +113,9 @@ on first use (pinned revisions, SHA-256 verified) into the Hugging Face cache.
   openness (the logic of `scripts/lip_matching.py`, per chunk, with ±0.24 s lag,
   minimum correlation 0.30, margin 0.10, two-hop switch confirmation). Until a
   confident match exists, the original passes through unchanged.
-- Separated voices are 8 kHz (telephone bandwidth); the ducked remainder keeps
-  the full band. Both models output exactly two voices: a third talker or loud
+- WHAMR 16k outputs 16 kHz voices; WHAMR 8k and ReSepFormer output 8 kHz voices
+  (telephone bandwidth). The ducked remainder keeps the full band. All models
+  output exactly two voices: a third talker or loud
   music leaks into one of them. Lip video on the dashboard is not delayed.
 - `LIPSYNC_TORCH_THREADS` optionally caps CPU threads; capping 4–8 threads was
   slower than torch's default on the i7-1260P.
