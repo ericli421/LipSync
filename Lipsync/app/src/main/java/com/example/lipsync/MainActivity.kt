@@ -168,6 +168,13 @@ private fun SeparationTestCard(state: CaptureState, controller: CaptureControlle
                 Switch(checked = test.identity, enabled = state.connected, onCheckedChange = { configure(identity = it) },
                     modifier = Modifier.semantics { contentDescription = "Voice lock" })
             }
+            Text("Person on camera (${test.facesInView} face${if (test.facesInView == 1) "" else "s"} in view, " +
+                "${if (test.faceMode == "selected") "chosen" else "automatic"})", style = MaterialTheme.typography.labelLarge)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(enabled = state.connected, onClick = { controller.control(CaptureProtocol.nextFace()) }) { Text("Next face") }
+                OutlinedButton(enabled = state.connected && test.faceMode == "selected",
+                    onClick = { controller.control(CaptureProtocol.autoFace()) }) { Text("Auto face") }
+            }
             Text("Listen to", style = MaterialTheme.typography.labelLarge)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 SOURCES.forEach { (value, label) ->

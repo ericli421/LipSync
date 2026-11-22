@@ -111,6 +111,24 @@ phone's Audio card or the dashboard.
 Focus does not try to remove the other person: it boosts the voice matched to
 the face on camera by +6 dB and lowers everything else by 8 dB (sliders).
 
+## Choosing the person on camera
+
+Focus follows the lips of one tracked face. The tracker used to pick "the largest
+face near the centre" separately in every frame, so with two people in view it
+could jump between them and mix both mouths into one lip signal. It now follows
+the same person from frame to frame, holds them through detection dropouts of up
+to 1 s, and only then picks automatically again. To choose explicitly:
+
+- **Dashboard:** click a face in the video (orange **TARGET** box; other faces grey).
+- **Phone:** **Next face** cycles left to right; **Auto face** returns to automatic.
+
+A chosen person stays chosen while out of view. The phone now keeps up to three
+video frames in flight instead of one: with a simulated 40-80 ms Wi-Fi round trip
+this raised processed video from 7-8 fps to 23-24 fps (one frame at a time gave
+about 10 fps on the S20). The 5 s log line reports fps, how often the target face
+was found, faces in view, server time per frame (about 18 ms on an i7-1260P) and
+how many times the target changed person.
+
 ## Voice lock (experimental, off by default)
 
 Voice lock keeps a speaker voiceprint per voice (pinned SpeechBrain ECAPA-TDNN)

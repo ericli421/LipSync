@@ -93,13 +93,16 @@ def create_landmarker():
     return FaceLandmarker.create_from_options(options)
 
 
-def process_frame(landmarker, frame, timestamp_ms):
+def process_frame(landmarker, frame, timestamp_ms, choose=None):
     """Detect the target face's lips in a BGR frame and draw annotations onto it (in place).
 
     Returns (frame, info) where info is a JSON-serialisable dict:
         face_found: bool
         openness:   inner-lip gap / mouth width (0 when no face)
         mouth_box:  [x, y, w, h] in pixels, or None
+        faces:      number of faces detected
+    choose: optional callable(face_landmark_lists) -> landmarks or None, to follow one
+    person across frames; by default the largest face in the centre region is used.
     """
     h, w = frame.shape[:2]
 
@@ -107,11 +110,19 @@ def process_frame(landmarker, frame, timestamp_ms):
     image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
     result = landmarker.detect_for_video(image, timestamp_ms)
 
-    info = {"face_found": False, "openness": 0.0, "mouth_box": None}
+    faces = result.face_landmarks or []
+    info = {"face_found": False, "openness": 0.0, "mouth_box": None, "faces": len(faces)}
 
     face = None
-    if result.face_landmarks:
-        face = pick_largest_face_in_region(result.face_landmarks, w, h)
+    if choose is not None:
+        face = choose(faces)
+    elif faces:
+        face = pick_largest_face_in_region(faces, w, h)
+    for other in faces:  # every detected face, faintly; the target is drawn below
+        if other is face:
+            continue
+        xs, ys = [p.x * w for p in other], [p.y * h for p in other]
+        cv2.rectangle(frame, (int(min(xs)), int(min(ys))), (int(max(xs)), int(max(ys))), (160, 160, 160), 1)
     if face is not None:
         outer = to_pixels(face, OUTER_LIPS, w, h)
         inner = to_pixels(face, INNER_LIPS, w, h)
@@ -132,10 +143,15 @@ def process_frame(landmarker, frame, timestamp_ms):
         cv2.putText(frame, f"mouth open: {openness:.2f}", (10, 30),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
 
+        xs, ys = [p.x * w for p in face], [p.y * h for p in face]
+        cv2.rectangle(frame, (int(min(xs)), int(min(ys))), (int(max(xs)), int(max(ys))), (0, 200, 255), 2)
+        cv2.putText(frame, "TARGET", (int(min(xs)), max(15, int(min(ys)) - 6)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 200, 255), 2)
         info = {
             "face_found": True,
             "openness": float(openness),
             "mouth_box": [int(x), int(y), int(bw), int(bh)],
+            "faces": len(faces),
         }
 
     rx1, ry1, rx2, ry2 = center_region(w, h)

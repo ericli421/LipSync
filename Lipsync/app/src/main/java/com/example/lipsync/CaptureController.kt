@@ -15,7 +15,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
 data class CaptureState(
@@ -41,9 +41,12 @@ class CaptureController(private val activity: Activity, private val owner: Lifec
     @Volatile private var socket: WebSocket? = null
     private var camera: PhoneCamera? = null
     private var audio: PhoneAudio? = null
-    private val videoPending = AtomicBoolean(false)
+    /** Frames sent but not yet acknowledged. One at a time capped video at ~10 fps over Wi-Fi. */
+    private val inFlight = AtomicInteger(0)
+    private val maxInFlight = 3
     private val videoSeq = AtomicLong(0)
     @Volatile private var videoSentAt = 0L
+    @Volatile private var videoAckAt = 0L
     private var frames = 0
     private var lastLevel = 0L
     private val clock = SimpleDateFormat("HH:mm:ss", Locale.US)
@@ -94,13 +97,16 @@ class CaptureController(private val activity: Activity, private val owner: Lifec
                                         }
                                     }, { fail(it, epoch) })
                                     camera = PhoneCamera(preview).also { capture ->
-                                        capture.start(owner, front, { session != null && !videoPending.get() }, { jpeg, time, sensorNanos ->
+                                        capture.start(owner, front, { session != null && inFlight.get() < maxInFlight }, { jpeg, time, sensorNanos ->
                                             val id = session
-                                            if (id != null && generation == epoch && videoPending.compareAndSet(false, true)) {
-                                                videoSentAt = SystemClock.elapsedRealtime()
-                                                send(CaptureProtocol.media("video", id, videoSeq.getAndIncrement(), time, "estimated")
-                                                    .put("sensor_time_ns", sensorNanos.toString())
-                                                    .put("jpeg_base64", Base64.encodeToString(jpeg, Base64.NO_WRAP)), epoch)
+                                            if (id != null && generation == epoch) {
+                                                if (inFlight.incrementAndGet() > maxInFlight) inFlight.decrementAndGet()
+                                                else {
+                                                    videoSentAt = SystemClock.elapsedRealtime()
+                                                    send(CaptureProtocol.media("video", id, videoSeq.getAndIncrement(), time, "estimated")
+                                                        .put("sensor_time_ns", sensorNanos.toString())
+                                                        .put("jpeg_base64", Base64.encodeToString(jpeg, Base64.NO_WRAP)), epoch)
+                                                }
                                             }
                                         }, { fail(it, epoch) })
                                     }
@@ -114,7 +120,8 @@ class CaptureController(private val activity: Activity, private val owner: Lifec
                                 }
                                 "control_error" -> note("Laptop rejected request: ${message.optString("message")}")
                                 "video_ack" -> if (message.optString("session_id") == session) {
-                                    videoPending.set(false)
+                                    if (inFlight.decrementAndGet() < 0) inFlight.set(0)
+                                    videoAckAt = SystemClock.elapsedRealtime()
                                     if (message.has("error")) { state = state.copy(status = "Video: ${message.getString("error")}"); update(state) }
                                     else frames++
                                 }
@@ -132,7 +139,7 @@ class CaptureController(private val activity: Activity, private val owner: Lifec
             val ticker = object : Runnable {
                 override fun run() {
                     if (generation != epoch) return
-                    if (videoPending.get() && videoSentAt > 0 && SystemClock.elapsedRealtime() - videoSentAt > 10_000) { stop("Video processing timed out. Reconnect to retry."); return }
+                    if (inFlight.get() >= maxInFlight && SystemClock.elapsedRealtime() - maxOf(videoSentAt, videoAckAt) > 10_000) { stop("Video processing timed out. Reconnect to retry."); return }
                     state = state.copy(fps = frames); frames = 0; update(state)
                     main.postDelayed(this, 1000)
                 }
@@ -161,7 +168,7 @@ class CaptureController(private val activity: Activity, private val owner: Lifec
         socket?.cancel(); socket = null
         camera?.stop(); camera = null
         audio?.stop(); audio = null
-        videoPending.set(false); videoSeq.set(0); frames = 0; videoSentAt = 0
+        inFlight.set(0); videoSeq.set(0); frames = 0; videoSentAt = 0; videoAckAt = 0
         activity.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         val logs = state.phoneLog
         state = CaptureState(status = message, phoneLog = logs, serverLog = state.serverLog)

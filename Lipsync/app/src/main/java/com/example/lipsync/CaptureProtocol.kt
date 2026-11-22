@@ -33,6 +33,10 @@ object CaptureProtocol {
     /** Turn a laptop audio layer on or off: voice_band or auto_volume. */
     fun layer(name: String, enabled: Boolean) = JSONObject().put("type", "set_layer").put("layer", name).put("enabled", enabled)
 
+    /** Choose whose lips drive Focus: the next face left to right, or automatic. */
+    fun nextFace() = JSONObject().put("type", "select_face").put("next", true)
+    fun autoFace() = JSONObject().put("type", "select_face").put("clear", true)
+
     /** What the laptop sends back for monitoring: original, voice1, voice2 or focus. */
     fun monitorSource(source: String) = JSONObject().put("type", "set_monitor").put("source", source)
 }
@@ -63,6 +67,8 @@ data class TestStatus(
     val maxArrivalGapMs: Int? = null,
     val identity: Boolean = false,
     val autoVolume: Boolean = true,
+    val faceMode: String = "auto",
+    val facesInView: Int = 0,
     val volumeGainDb: Double? = null,
     val identityReady: Boolean = false,
     val identityDecision: String? = null,
@@ -86,7 +92,11 @@ object PipelineStatus {
         val layers = message.optJSONObject("layers")
         val autoVolume = layers?.optBoolean("auto_volume", true) ?: true
         val volumeGain = message.double("volume_gain_db")
-        val test = message.optJSONObject("test") ?: return TestStatus(autoVolume = autoVolume, volumeGainDb = volumeGain) to log
+        val face = message.optJSONObject("face")
+        val faceMode = face?.optString("mode", "auto") ?: "auto"
+        val faces = face?.optInt("faces") ?: 0
+        val test = message.optJSONObject("test")
+            ?: return TestStatus(autoVolume = autoVolume, volumeGainDb = volumeGain, faceMode = faceMode, facesInView = faces) to log
         val network = message.optJSONObject("network")
         val lock = test.optJSONObject("live")?.optJSONObject("identity")
         val info = test.optJSONObject("info")
@@ -109,7 +119,7 @@ object PipelineStatus {
             modelRate = live?.takeIf { it.has("model_rate") }?.getInt("model_rate"),
             maxArrivalGapMs = network?.takeIf { it.has("max_gap_ms") }?.getInt("max_gap_ms"),
             identity = test.optBoolean("identity", false),
-            autoVolume = autoVolume, volumeGainDb = volumeGain,
+            autoVolume = autoVolume, volumeGainDb = volumeGain, faceMode = faceMode, facesInView = faces,
             identityReady = test.optBoolean("identity_ready"),
             identityDecision = lock?.text("decision"),
             identityCorrections = lock?.optInt("identity_swaps") ?: 0,

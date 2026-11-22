@@ -15,6 +15,7 @@ from fastapi.concurrency import run_in_threadpool
 from processor.audio_chain import AudioChain
 from processor.bridge import Hub, MAX_MESSAGE_BYTES, MODE, Outbox, Session
 from processor.debug_log import DebugLog
+from processor.face_target import FaceTarget
 from processor.test_mode import TestMode
 
 app = FastAPI(title="LipSync local processor")
@@ -22,6 +23,8 @@ hub = Hub()
 loop = None
 CHAIN_CONTROLS = ("set_layer", "set_band")
 TEST_CONTROLS = ("set_test_mode", "set_monitor", "set_focus", "set_recording")
+VISION_CONTROLS = ("select_face",)
+face_target = FaceTarget()  # the person whose lips drive Focus; shared by phone and dashboard
 debug = DebugLog()
 LOG_FILE = Path(__file__).resolve().parents[1] / ".tools" / "startup" / "lipsync-debug.log"
 
@@ -84,16 +87,22 @@ class VideoStats:
         self.reset()
 
     def reset(self):
-        self.frames, self.faces = 0, 0
+        self.frames, self.faces, self.detected, self.ms = 0, 0, 0, []
 
-    def frame(self, info):
+    def frame(self, info, ms=None):
         self.frames += 1
         self.faces += bool(info.get("face_found"))
+        self.detected += int(info.get("faces", 0))
+        if ms is not None:
+            self.ms.append(ms)
 
     def text(self):
         if not self.frames:
             return "video: no frames processed"
-        return f"video: {self.frames / 5:.1f} fps, face found {100 * self.faces / self.frames:.0f}%"
+        timing = f", server {sorted(self.ms)[len(self.ms) // 2]:.0f} ms/frame" if self.ms else ""
+        return (f"video: {self.frames / 5:.1f} fps, target face found {100 * self.faces / self.frames:.0f}%, "
+                f"{self.detected / self.frames:.1f} faces in view{timing}, target {face_target.status()['mode']} "
+                f"({face_target.status()['switches']} person switches)")
 
 
 video_stats = VideoStats()
@@ -101,13 +110,28 @@ video_stats = VideoStats()
 
 def pipeline_status():
     status = hub.chain.status() if hub.chain is not None else hub.idle_pipeline()
-    return {**status, "test": test_mode.status(), "network": arrivals.status(), "log": debug.recent(40)}
+    return {**status, "test": test_mode.status(), "network": arrivals.status(),
+            "face": face_target.status(), "log": debug.recent(40)}
 
 
 def notify_viewers():
     """Called from worker threads when test mode changes state."""
     if loop is not None:
         loop.call_soon_threadsafe(lambda: hub.publish(pipeline_status(), include_phone=True))
+
+
+def select_face(message):
+    """{"x": 0..1, "y": 0..1} picks the face nearest that point; {"next": true} cycles
+    left to right; {"clear": true} returns to automatic choice."""
+    if message.get("clear") is True:
+        face_target.clear()
+    elif message.get("next") is True:
+        face_target.select_next()
+    else:
+        x, y = message.get("x"), message.get("y")
+        if not all(isinstance(v, (int, float)) and not isinstance(v, bool) and 0 <= v <= 1 for v in (x, y)):
+            raise ValueError("select_face needs x and y in [0, 1], next, or clear")
+        face_target.select_point(x, y)
 
 
 def apply_control(message, source):
@@ -118,6 +142,8 @@ def apply_control(message, source):
             hub.settings.update(message)
         elif kind in TEST_CONTROLS:
             test_mode.update(message)
+        elif kind in VISION_CONTROLS:
+            select_face(message)
         else:
             raise ValueError(f"unsupported control {kind!r}")
     except ValueError as exc:
@@ -183,7 +209,8 @@ class FrameProcessor:
                     self.landmarker = create_landmarker()
                 timestamp = max(capture_us // 1000, self.last_ts + 1)
                 self.last_ts = timestamp
-                frame, info = process_frame(self.landmarker, frame, timestamp)
+                frame, info = process_frame(self.landmarker, frame, timestamp,
+                                            choose=lambda faces: face_target.choose(faces, capture_us / 1e6))
             except Exception as exc:
                 self.warning = f"Face tracking unavailable: {exc}"
                 debug.log("error", "vision", self.warning)
@@ -264,17 +291,19 @@ async def capture(sock: WebSocket):
     session = None
     sender = worker = None
     processor = FrameProcessor()
-    pending = asyncio.Queue(maxsize=1)
+    pending = asyncio.Queue(maxsize=3)  # the phone keeps up to 3 frames in flight
     outbox = Outbox()
 
     async def process_video():
         while True:
             message, jpeg = await pending.get()
             try:
+                began = time.perf_counter()
                 encoded, info = await run_in_threadpool(processor.process, jpeg, message["capture_time_us"])
+                frame_ms = (time.perf_counter() - began) * 1000
                 if hub.session is session:
                     test_mode.add_mouth(message["capture_time_us"], info)
-                    video_stats.frame(info)
+                    video_stats.frame(info, frame_ms)
                     hub.publish({**message, "jpeg_base64": base64.b64encode(encoded).decode(), "info": info})
                     outbox.put({"type": "video_ack", "seq": message["seq"], "session_id": session.id})
             except Exception as exc:
@@ -287,6 +316,7 @@ async def capture(sock: WebSocket):
         hub.begin(session, outbox)
         hub.chain = chain
         test_mode.attach(session.id, session.sample_rate)
+        face_target.clear()
         arrivals.last = None
         arrivals.reset()
         debug.log("info", "phone", f"connected: {session.device_name}, {session.sample_rate} Hz")
@@ -297,7 +327,7 @@ async def capture(sock: WebSocket):
             message = await receive_json(sock)
             if message.get("type") == "stop":
                 break
-            if message.get("type") in CHAIN_CONTROLS + TEST_CONTROLS:
+            if message.get("type") in CHAIN_CONTROLS + TEST_CONTROLS + VISION_CONTROLS:
                 try:  # the phone app drives the test; a bad request never ends capture
                     apply_control(message, "phone")
                 except ValueError as exc:

@@ -18,6 +18,12 @@ type Pipeline = {
   process_ms: number | null;
   error: string | null;
   test?: TestStatus;
+  face?: {
+    mode: string;
+    faces: number;
+    switches: number;
+    center: [number, number] | null;
+  };
   log?: {
     seq: number;
     time: string;
@@ -253,6 +259,23 @@ export function PhoneDashboard() {
       <div className="relative flex min-h-72 items-center justify-center bg-black aspect-video">
         <canvas
           ref={canvas}
+          onClick={(event) => {
+            const box = event.currentTarget.getBoundingClientRect();
+            if (!session || !box.width || !box.height) return;
+            control({
+              type: "select_face",
+              x: Math.min(
+                1,
+                Math.max(0, (event.clientX - box.left) / box.width),
+              ),
+              y: Math.min(
+                1,
+                Math.max(0, (event.clientY - box.top) / box.height),
+              ),
+            });
+          }}
+          title="Click a face to make it the person on camera"
+          style={{ cursor: session ? "crosshair" : undefined }}
           aria-label="Phone camera with face tracking"
           className="max-h-[65vh] max-w-full object-contain"
         />
@@ -288,7 +311,21 @@ export function PhoneDashboard() {
           />
         </div>
         <div>
-          <p className="text-muted-foreground">Face / mouth openness</p>
+          <p className="text-muted-foreground">
+            Face / mouth openness
+            {pipeline?.face
+              ? ` · ${pipeline.face.faces} in view, ${pipeline.face.mode === "selected" ? "chosen" : "auto"}`
+              : ""}
+            {pipeline?.face?.mode === "selected" && (
+              <button
+                type="button"
+                className="ml-2 underline"
+                onClick={() => control({ type: "select_face", clear: true })}
+              >
+                auto
+              </button>
+            )}
+          </p>
           <p className="mt-1 font-mono">
             {info
               ? `${info.face_found ? "Detected" : "No face"} / ${info.openness.toFixed(2)}`

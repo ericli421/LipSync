@@ -29,6 +29,8 @@ class CaptureProtocolTest {
         assertEquals("focus", CaptureProtocol.monitorSource("focus").getString("source"))
         assertFalse(start.getBoolean("identity"))
         assertTrue(CaptureProtocol.testMode(true, identity = true).getBoolean("identity"))
+        assertTrue(CaptureProtocol.nextFace().getBoolean("next"))
+        assertTrue(CaptureProtocol.autoFace().getBoolean("clear"))
         val layer = CaptureProtocol.layer("auto_volume", false)
         assertEquals("set_layer", layer.getString("type"))
         assertFalse(layer.getBoolean("enabled"))
