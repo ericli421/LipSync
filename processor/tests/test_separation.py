@@ -1,11 +1,15 @@
 """Streaming separation with a fake model: stitching, lip pick, focus, timing."""
+import os
 import tempfile
 import time
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import numpy as np
 
 from processor.separation import Decimator, LipPicker, StreamingSeparator, Upsampler
+from processor.separation_models import choose_device
 from processor.test_mode import TestMode
 
 RATE = 48000
@@ -18,15 +22,19 @@ def sources(seconds, rate=RATE):
     return 0.3 * env1 * np.sin(2 * np.pi * 300 * t), 0.3 * env2 * np.sin(2 * np.pi * 700 * t), env2
 
 
-def fake_model(swap=True, delay=0.0):
+def fake_model(swap=True, delay=0.0, rate=8000, stall_once=0.0):
     """Split below/above 500 Hz; swap output order randomly like a real separator."""
     rng = np.random.default_rng(1)
+    stall = [stall_once]
 
     def separate(window):
         if delay:
             time.sleep(delay)
+        if stall[0]:
+            time.sleep(stall[0])  # one GPU/driver hiccup
+            stall[0] = 0.0
         spectrum = np.fft.rfft(window)
-        freqs = np.fft.rfftfreq(len(window), 1 / 8000)
+        freqs = np.fft.rfftfreq(len(window), 1 / rate)
         low = np.fft.irfft(np.where(freqs < 500, spectrum, 0), len(window))
         high = np.fft.irfft(np.where(freqs >= 500, spectrum, 0), len(window))
         pair = [low, high]
@@ -112,6 +120,36 @@ class StreamingTests(unittest.TestCase):
         self.assertFalse(status["keeping_up"])
         self.assertIsNone(status["error"])
 
+    def test_one_hiccup_is_caught_up_not_dropped(self):
+        """A 0.6 s stall leaves a 2-hop backlog that is still in time: process it."""
+        s1, s2, _ = sources(4)
+        separator = StreamingSeparator(RATE, fake_model(stall_once=0.6), window_s=1.0, hop_s=0.25)
+        try:
+            mix = s1 + s2
+            began = time.perf_counter()
+            for k, start in enumerate(range(0, len(mix), 960)):
+                time.sleep(max(0, began + k * 0.02 - time.perf_counter()))
+                separator.feed(mix[start:start + 960])
+                separator.read(960, "voice1")
+            time.sleep(0.3)
+            status = separator.status()
+        finally:
+            separator.close()
+        self.assertEqual(status["skipped_hops"], 0)
+        self.assertGreater(status["hops"], 8)
+
+    def test_16k_model_rate(self):
+        s1, s2, _ = sources(6)
+        separator = StreamingSeparator(RATE, fake_model(rate=16000), window_s=1.5, hop_s=0.25, model_rate=16000)
+        try:
+            voice1 = run(separator, s1 + s2, "voice1")
+            status = separator.status()
+        finally:
+            separator.close()
+        tail = voice1[3 * RATE:]
+        self.assertEqual(status["model_rate"], 16000)
+        self.assertGreater(abs(tone_db(tail, 300) - tone_db(tail, 700)), 25)
+
     def test_rejects_unsupported_rate_and_geometry(self):
         with self.assertRaises(ValueError):
             StreamingSeparator(44100, fake_model())
@@ -154,6 +192,23 @@ class TestModeTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     mode.update(bad)
 
+    def test_summary_line_reports_timing_and_lip_pick(self):
+        mode = TestMode(loader=lambda name: (fake_model(), {"model": "fake", "device": "cpu"}))
+        mode.update({"type": "set_test_mode", "enabled": True, "window_s": 1.0, "hop_s": 0.25})
+        self.wait_state(mode, "ready")
+        mode.attach("s", RATE)
+        s1, s2, _ = sources(2)
+        pcm = ((s1 + s2) * 32767).astype("<i2")
+        for seq, start in enumerate(range(0, len(pcm), 960)):
+            mode.feed(pcm[start:start + 960].tobytes(), start, seq * 20_000)
+            mode.output(960)
+            time.sleep(0.005)
+        time.sleep(0.3)
+        line = mode.summary()
+        mode.detach("s")
+        for part in ("fake on cpu", "window 1.0 s", "median/p95", "dropped late", "lip pick:", "face not visible 100%"):
+            self.assertIn(part, line)
+
     def test_load_failure_is_reported_not_raised(self):
         def broken(name):
             raise RuntimeError("no CUDA")
@@ -164,6 +219,24 @@ class TestModeTests(unittest.TestCase):
         mode.attach("s", RATE)
         mode.feed(bytes(1920), 0, 0)
         self.assertIsNone(mode.output(960))
+
+
+
+class DeviceTests(unittest.TestCase):
+    def torch(self, cuda):
+        return SimpleNamespace(__version__="2.9.1+cpu", version=SimpleNamespace(cuda="12.6" if cuda else None),
+                               cuda=SimpleNamespace(is_available=lambda: cuda))
+
+    def test_never_silently_uses_cpu_when_a_gpu_exists(self):
+        self.assertEqual(choose_device(self.torch(True), "auto", "NVIDIA RTX A3000"), "cuda")
+        with patch.dict(os.environ, {"LIPSYNC_ALLOW_CPU": ""}):
+            with self.assertRaisesRegex(RuntimeError, "Setup-Models.cmd"):
+                choose_device(self.torch(False), "auto", "NVIDIA RTX A3000")
+        with patch.dict(os.environ, {"LIPSYNC_ALLOW_CPU": "1"}):
+            self.assertEqual(choose_device(self.torch(False), "auto", "NVIDIA RTX A3000"), "cpu")
+        self.assertEqual(choose_device(self.torch(False), "auto", None), "cpu")
+        with self.assertRaises(RuntimeError):
+            choose_device(self.torch(False), "cuda", None)
 
 
 if __name__ == "__main__":

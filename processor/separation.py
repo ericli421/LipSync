@@ -1,6 +1,7 @@
 """Streaming two-voice separation with lip-driven focus (live test mode).
 
-Every hop (e.g. 0.25 s) the last `window` seconds of 8 kHz audio are separated
+Every hop (e.g. 0.25 s) the last `window` seconds, resampled to the model's rate
+(8 or 16 kHz), are separated
 into two candidates. Consecutive chunks overlap, so each chunk's candidates are
 reordered (and sign-corrected) to match the previous chunk before stitching;
 this keeps "Voice 1" the same person across chunks. Only the region ending
@@ -10,7 +11,8 @@ previous chunk's estimate of the same samples.
 
 Output delay (input-rate samples) is fixed: lookahead + 2 hops by default,
 which leaves one full hop for inference. If inference is slower than the hop,
-the separator skips ahead and reports it rather than letting delay grow.
+hops whose output would already be late are dropped and reported, rather
+than letting delay grow. Bursty arrival that is still in time is not dropped.
 
 The focus mix is: boost * target + duck * (delayed original - target), where
 target is the candidate whose loudness envelope best correlates with the
@@ -90,6 +92,7 @@ class LipPicker:
         self.pending, self.pending_count = -1, 0
         self.scores = [None, None]
         self.reason = "waiting for face"
+        self.counts = collections.Counter()  # pick outcomes, for the periodic log summary
 
     def add(self, capture_us, openness):
         with self.lock:
@@ -113,9 +116,14 @@ class LipPicker:
         out[close] = values[nearest][close]
         return out
 
-    def pick(self, candidates, window_start_us):
-        """candidates: (samples, 2) at 8 kHz. Returns chosen index or -1."""
-        hop = MODEL_RATE // FPS
+    def pick(self, candidates, window_start_us, rate=MODEL_RATE):
+        """candidates: (samples, 2) at `rate`. Returns chosen index or -1."""
+        choice = self._pick(candidates, window_start_us, rate)
+        self.counts[self.reason] += 1
+        return choice
+
+    def _pick(self, candidates, window_start_us, rate):
+        hop = rate // FPS
         frames = len(candidates) // hop
         cfg = self.config
         mouth = self.trace(window_start_us, frames)
@@ -162,13 +170,14 @@ class StreamingSeparator:
     """Feed input-rate float blocks; read delayed output blocks for a monitor."""
     def __init__(self, rate, separate, window_s=1.5, hop_s=0.25, lookahead_s=0.25,
                  crossfade_s=0.03, delay_s=None, picker=None, anchor_us=0,
-                 focus_db=3.0, duck_db=-15.0, record_seconds=0):
-        if rate % MODEL_RATE:
-            raise ValueError(f"test mode needs a capture rate divisible by 8000 Hz, not {rate}")
-        self.rate, self.factor, self.separate = rate, rate // MODEL_RATE, separate
-        self.W, self.H = round(window_s * MODEL_RATE), round(hop_s * MODEL_RATE)
-        self.D = round(lookahead_s * MODEL_RATE)
-        self.F = min(round(crossfade_s * MODEL_RATE), self.D)
+                 focus_db=3.0, duck_db=-15.0, record_seconds=0, model_rate=MODEL_RATE):
+        self.mr = model_rate
+        if rate % self.mr:
+            raise ValueError(f"test mode needs a capture rate divisible by {self.mr} Hz, not {rate}")
+        self.rate, self.factor, self.separate = rate, rate // self.mr, separate
+        self.W, self.H = round(window_s * self.mr), round(hop_s * self.mr)
+        self.D = round(lookahead_s * self.mr)
+        self.F = min(round(crossfade_s * self.mr), self.D)
         if self.H <= 0 or self.D + self.H > self.W:
             raise ValueError("need 0 < hop and lookahead + hop <= window")
         delay_s = lookahead_s + 2 * hop_s if delay_s is None else delay_s
@@ -196,10 +205,12 @@ class StreamingSeparator:
         self.processed = 0        # input-rate samples fully handled by the worker
         self.read_pos = 0
         self.stats = {"hops": 0, "skipped_hops": 0, "swaps": 0, "underruns": 0,
-                      "infer_ms": collections.deque(maxlen=40), "behind_ms": 0.0}
+                      "infer_ms": collections.deque(maxlen=40), "behind_ms": 0.0,
+                      "late_drops": collections.deque(maxlen=2000),
+                      "gap_db": collections.deque(maxlen=40)}
         self.voice_db = [-120.0, -120.0]
         self.error = None
-        self.record_limit = record_seconds * MODEL_RATE
+        self.record_limit = record_seconds * self.mr
         self.recording = {"mix": [], "voice1": [], "voice2": [], "focus_pick": []} if record_seconds else None
         self.running = True
         self.worker = threading.Thread(target=self._run, name="separator", daemon=True)
@@ -273,23 +284,31 @@ class StreamingSeparator:
                 if not blocks:
                     continue
                 x8 = self.down.process(np.concatenate(blocks))
-                self.ring = np.concatenate([self.ring, x8])[-(self.W + 2 * MODEL_RATE):]
+                self.ring = np.concatenate([self.ring, x8])[-(self.W + 2 * self.mr):]
                 self.total8 += len(x8)
                 if self.recording is not None and sum(map(len, self.recording["mix"])) < self.record_limit:
                     self.recording["mix"].append(x8)
                 while self.running and self.total8 >= self.next_end:
                     behind = self.total8 - self.next_end
-                    self.stats["behind_ms"] = behind * 1000 / MODEL_RATE
-                    if behind >= self.H:  # too slow: jump to the newest full hop
-                        skip = behind // self.H
-                        self.next_end += skip * self.H
-                        self.stats["skipped_hops"] += skip
-                    self._hop(self.next_end)
+                    self.stats["behind_ms"] = behind * 1000 / self.mr
+                    # Drop a hop only when its output would already have been played.
+                    # Audio that arrives in a burst but is still in time is processed
+                    # back to back, so Wi-Fi jitter alone no longer creates gaps.
+                    if self._too_late(self.next_end):
+                        self.stats["skipped_hops"] += 1
+                        self.stats["late_drops"].append(time.monotonic())
+                    else:
+                        self._hop(self.next_end)
                     self.next_end += self.H
                 self.processed += sum(map(len, blocks))
         except Exception as exc:  # surface in status; relay keeps running
             self.error = f"separation failed: {type(exc).__name__}: {exc}"
             self.running = False
+
+    def _too_late(self, end):
+        """True if the region this hop emits ends before the current playout point."""
+        emitted_end = (end - self.D) * self.factor + self.group
+        return self.fed - self.delay > emitted_end
 
     def _hop(self, end):
         start = end - self.W
@@ -300,7 +319,7 @@ class StreamingSeparator:
         if est.shape != (self.W, 2) or not np.isfinite(est).all():
             raise ValueError(f"model returned {est.shape} or non-finite output")
         est = self._scale(self._align(est, start), window)
-        choice = self.picker.pick(est, self.anchor_us + start * 1_000_000 // MODEL_RATE)
+        choice = self.picker.pick(est, self.anchor_us + start * 1_000_000 // self.mr, self.mr)
         e0, e1 = end - self.D - self.H, end - self.D
         region = est[e0 - start: e1 - start].copy()
         if self.prev is not None and self.F:
@@ -312,6 +331,7 @@ class StreamingSeparator:
         self.prev = (start, est)
         self.stats["hops"] += 1
         self.voice_db = [db(region[:, 0]), db(region[:, 1])]
+        self.stats["gap_db"].append(abs(self.voice_db[0] - self.voice_db[1]))
         gap = 0 if self.emitted8 is None else e0 - self.emitted8
         if gap > 0:  # skipped hops: emit silence so the timeline stays aligned
             region = np.vstack([np.zeros((gap, 2)), region])
@@ -338,7 +358,7 @@ class StreamingSeparator:
             return est
         pstart, pest = self.prev
         lo, hi = start, pstart + self.W
-        if hi - lo < MODEL_RATE // 20:
+        if hi - lo < self.mr // 20:
             return est
         a, b = est[lo - start: hi - start], pest[lo - pstart: hi - pstart]
         c = np.array([[correlation(a[:, i], b[:, j]) for j in range(2)] for i in range(2)])
@@ -359,23 +379,31 @@ class StreamingSeparator:
     # ---- reporting ----
     def status(self):
         infer = list(self.stats["infer_ms"])
-        hop_ms = self.H * 1000 / MODEL_RATE
+        hop_ms = self.H * 1000 / self.mr
         p95 = float(np.percentile(infer, 95)) if infer else None
         return {
-            "window_s": self.W / MODEL_RATE, "hop_s": self.H / MODEL_RATE, "lookahead_s": self.D / MODEL_RATE,
+            "window_s": self.W / self.mr, "hop_s": self.H / self.mr, "lookahead_s": self.D / self.mr,
             "delay_ms": round(self.delay * 1000 / self.rate),
             "infer_ms": round(float(np.median(infer)), 1) if infer else None,
             "infer_p95_ms": round(p95, 1) if p95 is not None else None,
-            "rtf": round(float(np.median(infer)) / (self.W * 1000 / MODEL_RATE), 3) if infer else None,
-            "keeping_up": None if p95 is None else bool(p95 < hop_ms and not self.stats["skipped_hops"]),
+            "rtf": round(float(np.median(infer)) / (self.W * 1000 / self.mr), 3) if infer else None,
+            "keeping_up": None if p95 is None else bool(p95 < hop_ms and not self.recent_drops()),
+            "recent_drops": self.recent_drops(),
+            "voice_gap_db": round(float(np.mean(self.stats["gap_db"])), 1) if self.stats["gap_db"] else None,
+            "model_rate": self.mr,
             "hops": self.stats["hops"], "skipped_hops": self.stats["skipped_hops"],
             "swaps_fixed": self.stats["swaps"], "underruns": self.stats["underruns"],
             "behind_ms": round(self.stats["behind_ms"]),
             "voice_db": self.voice_db,
             "pick": self.picker.choice, "pick_reason": self.picker.reason, "lip_scores": self.picker.scores,
-            "recorded_s": round(sum(map(len, self.recording["mix"])) / MODEL_RATE, 1) if self.recording else 0,
+            "recorded_s": round(sum(map(len, self.recording["mix"])) / self.mr, 1) if self.recording else 0,
             "error": self.error,
         }
+
+    def recent_drops(self, seconds=10.0):
+        """Hops dropped as late in the last `seconds` (not since the start)."""
+        cutoff = time.monotonic() - seconds
+        return sum(1 for t in list(self.stats["late_drops"]) if t >= cutoff)
 
     def take_recording(self):
         """Return {name: 8 kHz float array} aligned to the same start, then stop recording."""

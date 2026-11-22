@@ -23,7 +23,8 @@ class CaptureProtocolTest {
         assertEquals("set_test_mode", start.getString("type"))
         assertTrue(start.getBoolean("enabled"))
         assertEquals("auto", start.getString("model"))
-        assertEquals(1.5, start.getDouble("window_s"), 0.0)
+        assertEquals(2.0, start.getDouble("window_s"), 0.0)
+        assertEquals("sepformer-whamr16k", CaptureProtocol.testMode(true, "sepformer-whamr16k", 1.0, 0.5).getString("model"))
         assertEquals(0.25, start.getDouble("hop_s"), 0.0)
         assertEquals("focus", CaptureProtocol.monitorSource("focus").getString("source"))
     }
@@ -39,13 +40,18 @@ class CaptureProtocolTest {
         val running = org.json.JSONObject("""{"type":"pipeline","test":{"enabled":true,"state":"running","error":null,
             "info":{"model":"sepformer-whamr","device":"cuda","gpu":"NVIDIA RTX A3000"},"monitor":"focus",
             "window_s":1.5,"hop_s":0.25,"live":{"infer_ms":41.5,"infer_p95_ms":60.0,"keeping_up":true,"hops":20,
-            "skipped_hops":0,"delay_ms":750,"voice_db":[-20.5,-35.0],"pick":0,"pick_reason":"matched","error":null}}}""")
+            "skipped_hops":0,"delay_ms":750,"voice_db":[-20.5,-35.0],"pick":0,"pick_reason":"matched","error":null,
+            "recent_drops":0,"voice_gap_db":14.5,"model_rate":16000}},"network":{"max_gap_ms":180}}""")
         val (live, none) = PipelineStatus.parse(running)
         assertEquals("sepformer-whamr on NVIDIA RTX A3000", live.where)
         assertEquals(41.5, live.inferMs!!, 0.0)
         assertEquals(true, live.keepingUp)
         assertEquals(listOf(-20.5, -35.0), live.voiceDb)
         assertEquals(750, live.delayMs)
+        assertEquals(16000, live.modelRate)
+        assertEquals(14.5, live.voiceGapDb!!, 0.0)
+        assertEquals(180, live.maxArrivalGapMs)
+        assertEquals("auto", live.model)
         assertTrue(none.isEmpty())
     }
     @Test fun handshakeAndMediaCarryTiming() {

@@ -1,6 +1,7 @@
 """Live separation test mode: dashboard settings, model loading, per-session separator."""
 from __future__ import annotations
 
+import collections
 from datetime import datetime
 import json
 from pathlib import Path
@@ -31,9 +32,10 @@ class TestMode:
         self.loader, self.on_change, self.recordings_dir = loader, on_change, Path(recordings_dir)
         self.log = log or (lambda *args, **kwargs: None)
         self.reported_skips = 0
+        self.last_counts = collections.Counter()
         self.lock = threading.RLock()
         self.enabled, self.model = False, "auto"
-        self.window_s, self.hop_s = 1.5, 0.25
+        self.window_s, self.hop_s = 2.0, 0.25  # 0.75 s delay; more context separates better
         self.monitor = "original"
         self.focus_db, self.duck_db, self.lip_offset_ms = 3.0, -15.0, 0.0
         self.record = False
@@ -191,12 +193,14 @@ class TestMode:
             session["rate"], self.separate, window_s=self.window_s, hop_s=self.hop_s,
             lookahead_s=LOOKAHEAD_S, picker=self.picker, anchor_us=session["anchor_us"],
             focus_db=self.focus_db, duck_db=self.duck_db,
-            record_seconds=RECORD_SECONDS if self.record else 0)
+            record_seconds=RECORD_SECONDS if self.record else 0,
+            model_rate=int((self.info or {}).get("sample_rate", MODEL_RATE)))
         self.built_version, self.state, self.error = self.version, "running", None
         self.reported_skips = 0
+        self.last_counts = collections.Counter()
         delay_ms = self.separator.delay * 1000 // session["rate"]
         self.log("info", "test", f"separating: window {self.window_s} s, hop {self.hop_s} s, "
-                 f"delay {delay_ms} ms, input {session['rate']} Hz")
+                 f"delay {delay_ms} ms, input {session['rate']} Hz, model {self.separator.mr} Hz")
 
     def _close_separator(self):
         if self.separator is not None:
@@ -206,6 +210,7 @@ class TestMode:
     def _save_recording(self):
         if self.separator is None:
             return
+        rate = self.separator.mr
         data = self.separator.take_recording()
         if not data or not len(data["mix"]):
             return
@@ -213,10 +218,10 @@ class TestMode:
         folder.mkdir(parents=True, exist_ok=True)
         for name in ("mix", "voice1", "voice2"):
             if name in data and len(data[name]):
-                wavfile.write(folder / f"{name}.wav", MODEL_RATE,
+                wavfile.write(folder / f"{name}.wav", rate,
                               (np.clip(data[name], -1, 1) * 32767).astype(np.int16))
         picks = data.get("focus_pick", np.zeros(0))
-        meta = {"sample_rate": MODEL_RATE, "seconds": round(len(data["mix"]) / MODEL_RATE, 2),
+        meta = {"sample_rate": rate, "seconds": round(len(data["mix"]) / rate, 2),
                 "model": self.info, "window_s": self.window_s, "hop_s": self.hop_s,
                 "lookahead_s": LOOKAHEAD_S, "lip_offset_ms": self.lip_offset_ms,
                 "lip_pick_fraction": {"none": float(np.mean(picks == -1)) if len(picks) else None,
@@ -228,16 +233,44 @@ class TestMode:
         self.log("info", "test", f"saved {meta['seconds']} s recording to {folder}")
 
     def tick(self):
-        """Called every 100 ms while a phone streams: report a model that cannot keep up."""
+        """Every 100 ms while a phone streams: explain dropped hops honestly."""
         with self.lock:
             separator = self.separator
         if separator is None:
             return
         live = separator.status()
-        if live["skipped_hops"] > self.reported_skips:
-            self.log("warn", "test", f"model too slow: {live['skipped_hops']} hops skipped "
-                     f"(p95 {live['infer_p95_ms']} ms > hop {live['hop_s'] * 1000:.0f} ms)", every_s=2)
-            self.reported_skips = live["skipped_hops"]
+        if live["skipped_hops"] <= self.reported_skips:
+            return
+        new = live["skipped_hops"] - self.reported_skips
+        hop_ms, p95 = live["hop_s"] * 1000, live["infer_p95_ms"]
+        if p95 is not None and p95 >= hop_ms:
+            why = (f"model too slow (p95 {p95:.0f} ms >= hop {hop_ms:.0f} ms); "
+                   "try hop 0.5 s, a 1 s window, a lighter model, or the GPU")
+        else:
+            shown = "n/a" if p95 is None else f"{p95:.0f} ms"
+            why = (f"audio reached the laptop too late; the model is fast enough "
+                   f"(p95 {shown}, hop {hop_ms:.0f} ms). Check Wi-Fi and CPU load")
+        self.log("warn", "test", f"dropped {new} late hop(s) ({live['skipped_hops']} total): {why}", every_s=2)
+        self.reported_skips = live["skipped_hops"]
+
+    def summary(self):
+        """One line every few seconds for the debug log, or None when not separating."""
+        with self.lock:
+            separator, picker, info = self.separator, self.picker, self.info or {}
+        if separator is None:
+            return None
+        live = separator.status()
+        delta = picker.counts - self.last_counts
+        self.last_counts = picker.counts.copy()
+        total = sum(delta.values())
+        picks = ", ".join(f"{reason} {100 * n / total:.0f}%" for reason, n in delta.most_common()) or "no windows"
+        target = f"voice {live['pick'] + 1}" if live["pick"] >= 0 else "none"
+        fmt = lambda v: "-" if v is None else f"{v:.0f}"
+        return (f"{info.get('model')} on {info.get('gpu') or info.get('device')} | window {live['window_s']} s, "
+                f"hop {live['hop_s']} s, delay {live['delay_ms']} ms | model {fmt(live['infer_ms'])}/"
+                f"{fmt(live['infer_p95_ms'])} ms (median/p95) | hops {live['hops']}, dropped late {live['recent_drops']} "
+                f"(10 s), playback gaps {live['underruns']} | voices {live['voice_db'][0]}/{live['voice_db'][1]} dB, "
+                f"avg gap {live['voice_gap_db']} dB | lip pick: {picks} -> {target} | monitor {self.monitor}")
 
     def status(self):
         with self.lock:

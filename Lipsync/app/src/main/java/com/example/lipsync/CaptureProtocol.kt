@@ -25,7 +25,7 @@ object CaptureProtocol {
         .put("capture_time_us", captureUs).put("timing", timing)
 
     /** Start/stop the laptop's live separation test (same control the dashboard sends). */
-    fun testMode(enabled: Boolean, model: String = "auto", windowS: Double = 1.5, hopS: Double = 0.25) = JSONObject()
+    fun testMode(enabled: Boolean, model: String = "auto", windowS: Double = 2.0, hopS: Double = 0.25) = JSONObject()
         .put("type", "set_test_mode").put("enabled", enabled).put("model", model)
         .put("window_s", windowS).put("hop_s", hopS)
 
@@ -37,10 +37,11 @@ object CaptureProtocol {
 data class TestStatus(
     val enabled: Boolean = false,
     val state: String = "off",
+    val model: String = "auto",
     val where: String = "",
     val error: String? = null,
     val monitor: String = "original",
-    val windowS: Double = 1.5,
+    val windowS: Double = 2.0,
     val hopS: Double = 0.25,
     val inferMs: Double? = null,
     val p95Ms: Double? = null,
@@ -52,6 +53,10 @@ data class TestStatus(
     val pick: Int = -1,
     val pickReason: String = "",
     val liveError: String? = null,
+    val recentDrops: Int = 0,
+    val voiceGapDb: Double? = null,
+    val modelRate: Int? = null,
+    val maxArrivalGapMs: Int? = null,
 )
 
 data class LogLine(val seq: Long, val time: String, val level: String, val source: String, val message: String) {
@@ -69,13 +74,15 @@ object PipelineStatus {
             }
         } ?: emptyList()
         val test = message.optJSONObject("test") ?: return TestStatus() to log
+        val network = message.optJSONObject("network")
         val info = test.optJSONObject("info")
         val live = test.optJSONObject("live")
         val where = info?.let { listOfNotNull(it.text("model"), it.text("gpu") ?: it.text("device")).joinToString(" on ") } ?: ""
         val status = TestStatus(
             enabled = test.optBoolean("enabled"), state = test.optString("state", "off"), where = where,
+            model = test.optString("model", "auto"),
             error = test.text("error"), monitor = test.optString("monitor", "original"),
-            windowS = test.optDouble("window_s", 1.5), hopS = test.optDouble("hop_s", 0.25),
+            windowS = test.optDouble("window_s", 2.0), hopS = test.optDouble("hop_s", 0.25),
             inferMs = live?.double("infer_ms"), p95Ms = live?.double("infer_p95_ms"),
             keepingUp = live?.takeIf { it.has("keeping_up") && !it.isNull("keeping_up") }?.getBoolean("keeping_up"),
             hops = live?.optInt("hops") ?: 0, skipped = live?.optInt("skipped_hops") ?: 0,
@@ -83,6 +90,10 @@ object PipelineStatus {
             voiceDb = live?.optJSONArray("voice_db")?.let { db -> (0 until db.length()).map { db.getDouble(it) } } ?: emptyList(),
             pick = live?.optInt("pick", -1) ?: -1, pickReason = live?.optString("pick_reason") ?: "",
             liveError = live?.text("error"),
+            recentDrops = live?.optInt("recent_drops") ?: 0,
+            voiceGapDb = live?.double("voice_gap_db"),
+            modelRate = live?.takeIf { it.has("model_rate") }?.getInt("model_rate"),
+            maxArrivalGapMs = network?.takeIf { it.has("max_gap_ms") }?.getInt("max_gap_ms"),
         )
         return status to log
     }

@@ -1,4 +1,4 @@
-param([ValidateSet('cpu','cuda')][string]$Device = 'cpu', [switch]$ReplaceTorch)
+param([ValidateSet('auto','cpu','cuda')][string]$Device = 'auto', [switch]$ReplaceTorch)
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 Set-Location -LiteralPath $projectRoot
@@ -7,6 +7,16 @@ function Run-Checked([string]$Executable, [string[]]$Arguments) {
     if ($LASTEXITCODE -ne 0) { throw "Command failed: $Executable $Arguments" }
 }
 try {
+    $replace = $ReplaceTorch.IsPresent
+    if ($Device -eq 'auto') {
+        # Use the NVIDIA GPU whenever the driver reports one (e.g. the A3000 laptop).
+        $gpu = $null
+        if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) {
+            $gpu = & nvidia-smi --query-gpu=name --format=csv,noheader 2>$null | Select-Object -First 1
+        }
+        if ($gpu) { $Device = 'cuda'; Write-Host "NVIDIA GPU found ($gpu): installing CUDA PyTorch." -ForegroundColor Green }
+        else { $Device = 'cpu'; Write-Host 'No NVIDIA GPU found: installing CPU PyTorch.' }
+    }
     $basePython = Join-Path $env:LOCALAPPDATA 'Programs\Python\Python311\python.exe'
     if (-not (Test-Path $basePython)) {
         $basePython = (& py -3.11 -c 'import sys; print(sys.executable)')
@@ -18,12 +28,14 @@ try {
         $installed = & $python -c "import importlib.util; print(bool(importlib.util.find_spec('torch')))"
         if ($installed -eq 'True') {
             $cudaBuild = & $python -c 'import torch; print(torch.version.cuda is not None)'
-            if ($Device -eq 'cuda' -and $cudaBuild -ne 'True' -and -not $ReplaceTorch) {
-                throw "$environment has CPU Torch. To replace explicitly, run Setup-Models.cmd -Device cuda -ReplaceTorch"
+            if ($Device -eq 'cuda' -and $cudaBuild -ne 'True') {
+                Write-Host "$environment has CPU PyTorch; replacing it with the CUDA build so the GPU is used."
+                $replace = $true
+            } elseif (-not $replace) {
+                Write-Host "Keeping existing Torch in $environment."
             }
-            Write-Host "Keeping existing Torch in $environment (unless -ReplaceTorch was supplied)."
         }
-        if ($installed -ne 'True' -or $ReplaceTorch) {
+        if ($installed -ne 'True' -or $replace) {
             $wheel = if ($Device -eq 'cuda') { 'cu126' } else { 'cpu' }
             Run-Checked $python @('-m','pip','install','--upgrade','--force-reinstall','torch==2.9.1','torchaudio==2.9.1','--index-url',"https://download.pytorch.org/whl/$wheel")
         }

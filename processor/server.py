@@ -3,6 +3,9 @@ import asyncio
 import base64
 from contextlib import suppress
 import json
+import logging
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 import time
 import threading
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -18,11 +21,61 @@ loop = None
 CHAIN_CONTROLS = ("set_layer", "set_band")
 TEST_CONTROLS = ("set_test_mode", "set_monitor", "set_focus", "set_recording")
 debug = DebugLog()
+LOG_FILE = Path(__file__).resolve().parents[1] / ".tools" / "startup" / "lipsync-debug.log"
+
+
+def configure_logging():
+    """Print every debug line (not only warnings) and keep a file copy to share."""
+    logger = logging.getLogger("lipsync")
+    if getattr(logger, "_lipsync_configured", False):
+        return
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+    formatter = logging.Formatter("%(asctime)s %(levelname)s %(message)s", "%H:%M:%S")
+    console = logging.StreamHandler()
+    console.setFormatter(formatter)
+    logger.addHandler(console)
+    try:
+        LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        file = RotatingFileHandler(LOG_FILE, maxBytes=2_000_000, backupCount=3, encoding="utf-8")
+        file.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+        logger.addHandler(file)
+    except OSError as exc:  # logging must never stop the server
+        logger.warning("[server] cannot write %s: %s", LOG_FILE, exc)
+    logger._lipsync_configured = True
+
+
+configure_logging()
+
+
+class ArrivalStats:
+    """Gaps between phone audio messages as they reach the laptop (Wi-Fi jitter)."""
+    def __init__(self):
+        self.last = None
+        self.reset()
+
+    def reset(self):
+        self.blocks, self.max_gap_ms, self.late = 0, 0.0, 0
+
+    def arrived(self):
+        now = time.perf_counter()
+        if self.last is not None:
+            gap = (now - self.last) * 1000
+            self.max_gap_ms = max(self.max_gap_ms, gap)
+            self.late += gap > 100
+        self.last = now
+        self.blocks += 1
+
+    def status(self):
+        return {"blocks": self.blocks, "max_gap_ms": round(self.max_gap_ms), "gaps_over_100ms": self.late}
+
+
+arrivals = ArrivalStats()
 
 
 def pipeline_status():
     status = hub.chain.status() if hub.chain is not None else hub.idle_pipeline()
-    return {**status, "test": test_mode.status(), "log": debug.recent(40)}
+    return {**status, "test": test_mode.status(), "network": arrivals.status(), "log": debug.recent(40)}
 
 
 def notify_viewers():
@@ -181,6 +234,8 @@ async def capture(sock: WebSocket):
         hub.begin(session, outbox)
         hub.chain = chain
         test_mode.attach(session.id, session.sample_rate)
+        arrivals.last = None
+        arrivals.reset()
         debug.log("info", "phone", f"connected: {session.device_name}, {session.sample_rate} Hz")
         outbox.put(pipeline_status())
         sender = asyncio.create_task(send_loop(sock, outbox))
@@ -199,6 +254,7 @@ async def capture(sock: WebSocket):
                 continue
             data = session.validate(message)
             if message["type"] == "audio":
+                arrivals.arrived()
                 try:
                     processed = chain.process(data)
                 except Exception as exc:  # never stop the relay: fall back to raw audio
@@ -213,6 +269,14 @@ async def capture(sock: WebSocket):
                 hub.publish({**message, "pcm_base64": base64.b64encode(processed).decode()}, include_phone=True)
                 if message["seq"] % 5 == 0:  # meters every 100 ms; the phone every 500 ms
                     test_mode.tick()
+                if message["seq"] % 250 == 249:  # summary every 5 s of audio
+                    net = arrivals.status()
+                    debug.log("info", "stream", f"5 s: {net['blocks']} blocks, max arrival gap {net['max_gap_ms']} ms, "
+                              f"{net['gaps_over_100ms']} gaps > 100 ms, in {chain.in_db} dB, out {chain.out_db} dB")
+                    line = test_mode.summary()
+                    if line:
+                        debug.log("info", "test", line)
+                    arrivals.reset()
                     hub.publish({**pipeline_status(), "session_id": session.id},
                                 include_phone=message["seq"] % 25 == 0)
             elif not pending.full():

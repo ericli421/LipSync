@@ -101,6 +101,10 @@ class MainActivity : ComponentActivity() {
 }
 
 private val SOURCES = listOf("original" to "Original", "voice1" to "Voice 1", "voice2" to "Voice 2", "focus" to "Focus")
+private val MODELS = listOf("auto" to "Auto", "sepformer-whamr16k" to "WHAMR 16k", "sepformer-whamr" to "WHAMR 8k",
+    "resepformer-wsj02mix" to "ReSepFormer")
+private val WINDOWS = listOf(1.0, 1.5, 2.0)
+private val HOPS = listOf(0.25, 0.5)
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -117,8 +121,28 @@ private fun SeparationTestCard(state: CaptureState, controller: CaptureControlle
                 else -> "Off"
             }, color = if (test.state == "error") MaterialTheme.colorScheme.error else Color.Unspecified)
             Button(enabled = state.connected, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                onClick = { controller.control(CaptureProtocol.testMode(!test.enabled)) }) {
+                onClick = { controller.control(CaptureProtocol.testMode(!test.enabled, test.model, test.windowS, test.hopS)) }) {
                 Text(if (test.enabled) "Stop SepFormer test" else "Start SepFormer test")
+            }
+            fun configure(model: String = test.model, window: Double = test.windowS, hop: Double = test.hopS) =
+                controller.control(CaptureProtocol.testMode(test.enabled, model, window, hop))
+            Text("Model (changing it reloads on the laptop)", style = MaterialTheme.typography.labelLarge)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                MODELS.forEach { (value, label) ->
+                    FilterChip(selected = test.model == value, enabled = state.connected,
+                        onClick = { configure(model = value) }, label = { Text(label) })
+                }
+            }
+            Text("Window / hop (delay = 0.25 s + 2 × hop)", style = MaterialTheme.typography.labelLarge)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                WINDOWS.forEach { window ->
+                    FilterChip(selected = test.windowS == window, enabled = state.connected,
+                        onClick = { configure(window = window) }, label = { Text("${window} s") })
+                }
+                HOPS.forEach { hop ->
+                    FilterChip(selected = test.hopS == hop, enabled = state.connected,
+                        onClick = { configure(hop = hop) }, label = { Text("hop ${hop} s") })
+                }
             }
             Text("Listen to", style = MaterialTheme.typography.labelLarge)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -133,11 +157,12 @@ private fun SeparationTestCard(state: CaptureState, controller: CaptureControlle
                 Text("Model ${test.inferMs?.let { "%.0f".format(it) } ?: "–"} ms (p95 ${test.p95Ms?.let { "%.0f".format(it) } ?: "–"}) / budget $budget ms")
                 Text(when (test.keepingUp) {
                     true -> "Keeping up · delay ${test.delayMs ?: "–"} ms + Wi-Fi"
-                    false -> "NOT keeping up · ${test.skipped} of ${test.hops + test.skipped} hops skipped"
+                    false -> "NOT keeping up · ${test.recentDrops} late hops dropped in 10 s (${test.skipped} total)"
                     null -> "Measuring…"
                 }, color = if (test.keepingUp == false) MaterialTheme.colorScheme.error else Color.Unspecified)
-                if (test.voiceDb.size == 2) Text("Voice 1 %.1f dB · Voice 2 %.1f dB · gap %.1f dB".format(
-                    test.voiceDb[0], test.voiceDb[1], kotlin.math.abs(test.voiceDb[0] - test.voiceDb[1])))
+                if (test.voiceDb.size == 2) Text("Voice 1 %.1f dB · Voice 2 %.1f dB · avg gap %s dB".format(
+                    test.voiceDb[0], test.voiceDb[1], test.voiceGapDb?.let { "%.1f".format(it) } ?: "–"))
+                Text("Model audio ${test.modelRate?.let { "${it / 1000} kHz" } ?: "–"} · Wi-Fi max gap ${test.maxArrivalGapMs ?: "–"} ms (5 s)")
                 Text("On camera: ${if (test.pick >= 0) "Voice ${test.pick + 1}" else "none yet"} (${test.pickReason})")
                 test.liveError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }

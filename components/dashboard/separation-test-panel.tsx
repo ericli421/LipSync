@@ -44,9 +44,16 @@ export type TestStatus = {
 };
 
 const MODELS = [
-  { value: "auto", label: "Auto (GPU: SepFormer-WHAMR, CPU: ReSepFormer)" },
-  { value: "sepformer-whamr", label: "SepFormer-WHAMR · noise + reverb" },
-  { value: "resepformer-wsj02mix", label: "ReSepFormer · fast, clean-trained" },
+  { value: "auto", label: "Auto (GPU: WHAMR 16k, CPU: ReSepFormer)" },
+  {
+    value: "sepformer-whamr16k",
+    label: "SepFormer-WHAMR 16k · noise + reverb, 16 kHz",
+  },
+  { value: "sepformer-whamr", label: "SepFormer-WHAMR 8k · noise + reverb" },
+  {
+    value: "resepformer-wsj02mix",
+    label: "ReSepFormer 8k · fast, clean-trained",
+  },
 ];
 const MONITORS = [
   { value: "original", label: "Original (live)" },

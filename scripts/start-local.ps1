@@ -42,6 +42,21 @@ try {
     }
     & $python -c 'import processor.server'
     if ($LASTEXITCODE -ne 0) { throw 'Backend import failed. Check the error above and reinstall processor/requirements.txt.' }
+    $torchStatus = & $python scripts/check_torch.py
+    $gpu = $null
+    if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) {
+        $gpu = & nvidia-smi --query-gpu=name --format=csv,noheader 2>$null | Select-Object -First 1
+    }
+    if ($torchStatus -like 'gpu*') {
+        Write-Host "Separation will run on the GPU: $torchStatus" -ForegroundColor Green
+    } elseif ($gpu) {
+        Write-Host "WARNING: this PC has an NVIDIA GPU ($gpu) but PyTorch cannot use it: $torchStatus" -ForegroundColor Red
+        Write-Host 'Close LipSync and double-click Setup-Models.cmd to install CUDA PyTorch. Test mode refuses to run on the CPU here.' -ForegroundColor Red
+    } elseif ($torchStatus -eq 'missing') {
+        Write-Host 'Separation models are not installed yet: double-click Setup-Models.cmd once.' -ForegroundColor Yellow
+    } else {
+        Write-Host "No NVIDIA GPU found; separation will run on the CPU: $torchStatus" -ForegroundColor Yellow
+    }
     $dashboardStamp = Join-Path $projectRoot 'node_modules\.lipsync-package-lock.sha256'
     $dashboardHash = (Get-FileHash 'package-lock.json' -Algorithm SHA256).Hash
     if (-not (Test-Path 'node_modules\next\package.json') -or -not (Test-Path $dashboardStamp) -or (Get-Content $dashboardStamp -Raw).Trim() -ne $dashboardHash) {
@@ -66,6 +81,7 @@ try {
     Write-Host "`nLipSync is ready." -ForegroundColor Green
     Write-Host 'Dashboard: http://localhost:3000/dashboard'
     Write-Host 'Separation models load when Test mode is enabled. Run Setup-Models.cmd once to install their dependencies. Falcon stays offline.'
+    Write-Host "Debug log (share this file): $projectRoot\.tools\startup\lipsync-debug.log"
     Write-Host 'Phone addresses (use the Wi-Fi/Ethernet connection shared with your phone):'
     Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway } | ForEach-Object {
         $adapter = $_
